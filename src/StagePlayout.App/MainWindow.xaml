@@ -1,0 +1,323 @@
+﻿<Window x:Class="StagePlayout.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svgc="http://sharpvectors.codeplex.com/svgc/"
+        Title="StagePlayout" Height="680" Width="1180" MinHeight="480" MinWidth="980"
+        Background="{StaticResource BgBaseBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="13">
+
+    <Window.Resources>
+        <!-- Menu de contexto para GRUPOS/playlists -->
+        <ContextMenu x:Key="GroupMenu"
+                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+            <MenuItem Header="Renomear..." Click="RenameGroup_Click"/>
+            <MenuItem Header="Repetir grupo (loop)" IsCheckable="True" IsChecked="{Binding LoopGroup}"/>
+            <MenuItem Header="Expandir / colapsar" Click="GroupToggleExpand_Click"/>
+            <Separator/>
+            <MenuItem Header="Desagrupar (manter clips)" Click="UngroupCue_Click"/>
+            <MenuItem Header="Remover grupo (manter clips)" Click="RemoveCue_Click"/>
+        </ContextMenu>
+
+        <!-- Menu de contexto por cue (loop / auto-continuar / remover) -->
+        <ContextMenu x:Key="CueMenu"
+                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+            <MenuItem Header="No fim">
+                <MenuItem Header="Congelar no último frame" IsCheckable="True"
+                          IsChecked="{Binding End, Converter={StaticResource EqualsConverter}, ConverterParameter=HoldLastFrame}"/>
+                <MenuItem Header="Parar (fade out)" IsCheckable="True"
+                          IsChecked="{Binding End, Converter={StaticResource EqualsConverter}, ConverterParameter=Stop}"/>
+                <MenuItem Header="Loop" IsCheckable="True"
+                          IsChecked="{Binding End, Converter={StaticResource EqualsConverter}, ConverterParameter=Loop}"/>
+                <MenuItem Header="Auto-continuar" IsCheckable="True"
+                          IsChecked="{Binding End, Converter={StaticResource EqualsConverter}, ConverterParameter=AutoContinue}"/>
+            </MenuItem>
+            <MenuItem Header="Fade in">
+                <MenuItem Header="Sem fade" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=0}"/>
+                <MenuItem Header="0,5 s" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=0.5}"/>
+                <MenuItem Header="1 s" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=1}"/>
+                <MenuItem Header="2 s" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=2}"/>
+                <MenuItem Header="3 s" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=3}"/>
+                <MenuItem Header="5 s" IsCheckable="True" IsChecked="{Binding FadeInSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=5}"/>
+            </MenuItem>
+            <MenuItem Header="Fade out">
+                <MenuItem Header="Sem fade" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=0}"/>
+                <MenuItem Header="0,5 s" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=0.5}"/>
+                <MenuItem Header="1 s" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=1}"/>
+                <MenuItem Header="2 s" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=2}"/>
+                <MenuItem Header="3 s" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=3}"/>
+                <MenuItem Header="5 s" IsCheckable="True" IsChecked="{Binding FadeOutSeconds, Converter={StaticResource EqualsConverter}, ConverterParameter=5}"/>
+            </MenuItem>
+            <Separator/>
+            <MenuItem Header="Agrupar seleção" Click="GroupSelection_Click"/>
+            <MenuItem Header="Remover cue" Click="RemoveCue_Click"/>
+        </ContextMenu>
+
+        <Style x:Key="CueItemStyle" TargetType="ListBoxItem"
+               BasedOn="{StaticResource {x:Type ListBoxItem}}">
+            <Setter Property="ContextMenu" Value="{StaticResource CueMenu}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                    <Setter Property="ContextMenu" Value="{StaticResource GroupMenu}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ===== Top bar ===== -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <svgc:SvgViewbox Source="pack://application:,,,/Assets/logo.svg"
+                                 Height="30" Margin="0,0,10,0"/>
+                <TextBlock Text="STAGE PLAYOUT" FontSize="18" FontWeight="SemiBold"/>
+            </StackPanel>
+
+            <!-- Timecode grande: tempo restante do clip no ar (fundo negro, dígitos largos) -->
+            <Border VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Padding="30,2" CornerRadius="8"
+                    Background="Black"
+                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="RESTANTE" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="TxtBigRemaining" Text="--:--:--"
+                                   FontFamily="Consolas" FontSize="38"
+                                   Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="BtnOpenProject" Content="Abrir"
+                        Margin="0,0,8,0" Click="BtnOpenProject_Click"/>
+                <Button x:Name="BtnSaveProject" Content="Guardar"
+                        Margin="0,0,8,0" Click="BtnSaveProject_Click"/>
+                <Button x:Name="BtnAddMedia" Content="+ Adicionar media"
+                        Margin="0,0,8,0" Click="BtnAddMedia_Click"/>
+                <Button x:Name="BtnOutput" Content="Abrir output" Click="BtnOutput_Click"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Zona central: playlist + monitor PROGRAM ===== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <ListBox Grid.Column="0" x:Name="CueList" SelectionMode="Extended"
+                     ItemContainerStyle="{StaticResource CueItemStyle}"
+                     AllowDrop="True" Drop="CueList_Drop"
+                     DragEnter="CueList_DragOver" DragOver="CueList_DragOver" DragLeave="CueList_DragLeave"
+                     PreviewMouseLeftButtonDown="CueList_PreviewMouseLeftButtonDown"
+                     PreviewMouseMove="CueList_PreviewMouseMove"
+                     MouseDoubleClick="CueList_MouseDoubleClick">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <!-- Linha de GRUPO/playlist (cabeçalho expansível) -->
+                            <StackPanel x:Name="GroupRow" Orientation="Horizontal"
+                                        Visibility="Collapsed" Cursor="Hand"
+                                        MouseLeftButtonDown="GroupRow_Click">
+                                <TextBlock Text="{Binding ExpandGlyph}" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding ChildCount, StringFormat='  ({0} clips)'}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- Linha de CUE normal -->
+                            <Grid x:Name="CueRow">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Column="0" Width="72" Height="40" CornerRadius="4"
+                                        Background="{StaticResource BgElevatedBrush}"
+                                        Margin="0,0,10,0">
+                                    <Border.Clip>
+                                        <RectangleGeometry Rect="0,0,72,40" RadiusX="4" RadiusY="4"/>
+                                    </Border.Clip>
+                                    <Image Source="{Binding Thumbnail, IsAsync=True}" Stretch="UniformToFill"/>
+                                </Border>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding InfoText}" FontSize="11" Margin="0,1,0,0"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <ProgressBar Value="{Binding Progress}" Margin="0,4,0,0"
+                                               Visibility="{Binding IsLive, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="2" Text="{Binding TimeText}"
+                                           Foreground="{StaticResource TextMutedBrush}"
+                                           VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            </Grid>
+                        </Grid>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                                <Setter TargetName="GroupRow" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="CueRow" Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsChild}" Value="True">
+                                <Setter TargetName="CueRow" Property="Margin" Value="22,0,0,0"/>
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- Coluna direita: A SEGUIR + Camada 2 -->
+            <StackPanel Grid.Column="1" Width="300" Margin="12,0,0,0">
+                <TextBlock Text="A SEGUIR" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="2,0,0,6"/>
+                <Border Width="300" Height="169" CornerRadius="6" Background="Black"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <Border.Clip>
+                        <RectangleGeometry Rect="0,0,300,169" RadiusX="6" RadiusY="6"/>
+                    </Border.Clip>
+                    <Image x:Name="NextThumb" Stretch="UniformToFill"/>
+                </Border>
+                <TextBlock x:Name="TxtNextCue" Text="—" Margin="2,6,0,0"
+                           TextTrimming="CharacterEllipsis"/>
+
+                <!-- Composição com layers (alpha real no compositor GPU) -->
+                <TextBlock Text="COMPOSIÇÃO COM LAYERS" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextMutedBrush}" Margin="2,18,0,6"/>
+                <Border Padding="10" CornerRadius="8"
+                        Background="{StaticResource BgSurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    <StackPanel>
+
+                        <!-- selecionar camada a editar -->
+                        <UniformGrid Columns="2">
+                            <ToggleButton x:Name="SelL1" Content="Layer 1" IsChecked="True"
+                                          Margin="0,0,4,0" Click="SelLayer_Click"/>
+                            <ToggleButton x:Name="SelL2" Content="Layer 2" Click="SelLayer_Click"/>
+                        </UniformGrid>
+
+                        <!-- editor visual de geometria: arrasta = move, canto = redimensiona -->
+                        <Canvas x:Name="GeomCanvas" Width="276" Height="155" Margin="0,10,0,0"
+                                Background="Black" ClipToBounds="True">
+                            <Border x:Name="GeomRect" BorderBrush="{StaticResource AccentBrush}"
+                                    BorderThickness="2" Background="#333B82F6">
+                                <Grid>
+                                    <Thumb x:Name="GeomMoveThumb" Background="Transparent"
+                                           DragDelta="GeomMove_DragDelta"/>
+                                    <Thumb x:Name="GeomResizeThumb" Width="14" Height="14"
+                                           HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                           Background="{StaticResource AccentBrush}"
+                                           DragDelta="GeomResize_DragDelta"/>
+                                </Grid>
+                            </Border>
+                        </Canvas>
+
+                        <!-- cartão L1 -->
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="L1" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" x:Name="TxtL1Name" Text="(vazio)" FontSize="11"
+                                       Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"
+                                       Margin="8,0,8,0" TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <Button Content="Vídeo…" Tag="1" Padding="8,4" FontSize="11" Click="LayerOpen_Click"/>
+                                <Button x:Name="BtnL1Toggle" Content="MOSTRAR" Tag="1" Padding="8,4"
+                                        FontSize="11" Margin="4,0,0,0" IsEnabled="False" Click="LayerToggle_Click"/>
+                                <ToggleButton x:Name="BtnL1Mute" Content="SOM" Tag="1" Padding="8,4"
+                                              FontSize="11" Margin="4,0,0,0" Click="LayerMute_Click"
+                                              ToolTip="Som da Layer 1 (off = muda)"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- cartão L2 -->
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="L2" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" x:Name="TxtL2Name" Text="(vazio)" FontSize="11"
+                                       Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"
+                                       Margin="8,0,8,0" TextTrimming="CharacterEllipsis"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <Button Content="Vídeo…" Tag="2" Padding="8,4" FontSize="11" Click="LayerOpen_Click"/>
+                                <Button x:Name="BtnL2Toggle" Content="MOSTRAR" Tag="2" Padding="8,4"
+                                        FontSize="11" Margin="4,0,0,0" IsEnabled="False" Click="LayerToggle_Click"/>
+                                <ToggleButton x:Name="BtnL2Mute" Content="SOM" Tag="2" Padding="8,4"
+                                              FontSize="11" Margin="4,0,0,0" Click="LayerMute_Click"
+                                              ToolTip="Som da Layer 2 (off = muda)"/>
+                            </StackPanel>
+                        </Grid>
+
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Transporte ===== -->
+        <Border Grid.Row="2" Margin="0,12,0,0" Padding="12" CornerRadius="8"
+                Background="{StaticResource BgSurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" x:Name="BtnGo" Content="GO"
+                            Style="{StaticResource GoButtonStyle}" Click="BtnGo_Click"/>
+                    <Button Grid.Column="1" x:Name="BtnPause" Content="PAUSE"
+                            Margin="10,0,0,0" Click="BtnPause_Click" IsEnabled="False"/>
+                    <Button Grid.Column="2" x:Name="BtnStop" Content="STOP"
+                            Margin="6,0,0,0" Click="BtnStop_Click" IsEnabled="False"/>
+
+                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="20,0,0,0">
+                        <TextBlock x:Name="TxtNowPlaying" Text="Nenhum cue carregado"
+                                   FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="TxtTime" Text="--:--:-- / --:--:--"
+                                   Foreground="{StaticResource TextMutedBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="VOL" Foreground="{StaticResource TextMutedBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Slider x:Name="VolumeSlider" Width="120" Minimum="0" Maximum="100"
+                                Value="100" VerticalAlignment="Center"
+                                ValueChanged="VolumeSlider_ValueChanged"/>
+                        <ToggleButton x:Name="BtnMasterMute" Content="SOM" IsChecked="True"
+                                      Margin="10,0,0,0" Click="MasterMute_Click"
+                                      ToolTip="Som da cue master"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ===== Status bar ===== -->
+        <TextBlock Grid.Row="3" x:Name="TxtStatus" Margin="2,10,2,0"
+                   Foreground="{StaticResource TextMutedBrush}" Text="READY"/>
+    </Grid>
+</Window>

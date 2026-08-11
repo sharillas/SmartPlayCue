@@ -1,0 +1,12 @@
+<Window x:Class="StagePlayout.App.OutputWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:video="clr-namespace:StagePlayout.App.Video"
+        Title="StagePlayout Output"
+        WindowStyle="None" ResizeMode="NoResize" Topmost="True"
+        Background="Black" Cursor="None">
+    <Grid x:Name="RootGrid">
+        <!-- Compositor GPU próprio: programa A/B (crossfade) + layers L1/L2 com alpha -->
+        <video:CompositorHost x:Name="CompositorHost"/>
+    </Grid>
+</Window>
