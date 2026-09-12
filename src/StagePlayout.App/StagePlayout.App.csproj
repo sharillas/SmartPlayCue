@@ -28,6 +28,16 @@
     <None Include="..\..\thirdparty\FFmpeg\*" Link="FFmpeg\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Garante que o publish coloca as DLLs dentro de FFmpeg\ (o Link perde-se no single-file) -->
+  <Target Name="CopyFFmpegToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <FFmpegPublishFiles Include="..\..\thirdparty\FFmpeg\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FFmpegPublishFiles)"
+          DestinationFiles="@(FFmpegPublishFiles->'$(PublishDir)FFmpeg\%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <Resource Include="Assets\logo.svg" />
     <Resource Include="Assets\Icons\fa-audio-play.svg" />
