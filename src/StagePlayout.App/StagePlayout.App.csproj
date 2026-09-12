@@ -12,9 +12,9 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>1.0.0</Version>
-    <Product>StagePixPlay</Product>
-    <AssemblyName>StagePixPlay</AssemblyName>
+    <Version>2.1.0</Version>
+    <Product>Smart Play Cue</Product>
+    <AssemblyName>SmartPlayCue</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

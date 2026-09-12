@@ -6,7 +6,19 @@ and full control via Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.0.0-green)
+![Status](https://img.shields.io/badge/version-2.1.0-green)
+
+---
+
+## Screenshots
+
+### Main window
+
+![Smart Play Cue - Main Window](screenshots/main-window.png)
+
+### Output / Program display
+
+![Smart Play Cue - Output](screenshots/output-window.png)
 
 ---
 
@@ -20,8 +32,8 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Quick start
 
-1. Download `SmartCue-v2.0.0-win64.zip` from [Releases](../../releases)
-2. Extract and run `StagePixPlay.exe` — no dependencies
+1. Download `SmartPlayCue-Setup-2.1.0.exe` (instalador) ou `SmartPlayCue-v2.1.0-win64.zip` (portátil) from [Releases](../../releases)
+2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
 

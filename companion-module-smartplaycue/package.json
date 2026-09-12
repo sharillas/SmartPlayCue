@@ -1,12 +1,12 @@
 {
-	"name": "smartcue",
-	"version": "1.0.0",
+	"name": "smartplaycue",
+	"version": "2.1.0",
 	"main": "main.js",
 	"type": "module",
 	"manufacturer": "SmartChoice",
-	"product": ["SmartCue"],
-	"shortname": "smartcue",
-	"description": "Controlo do SmartCue (video playout) via OSC",
+	"product": ["Smart Play Cue"],
+	"shortname": "smartplaycue",
+	"description": "Controlo do Smart Play Cue (video playout) via OSC",
 	"keywords": ["video", "playout", "smartcue"],
 	"license": "MIT",
 	"repository": {
@@ -21,9 +21,6 @@
 		"node": ">=18"
 	},
 	"dependencies": {
-		"@companion-module/base": "~2.3.4"
-	},
-	"devDependencies": {
-		"@companion-module/tools": "^1.5.0"
+		"@companion-module/base": "~2.1.3"
 	}
 }

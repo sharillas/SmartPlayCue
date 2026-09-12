@@ -16,3 +16,14 @@ Desktop.ini
 # Runtime
 shortcuts.json
 *.log
+
+# Node / Companion module
+node_modules/
+*.tgz
+
+
+# Release binaries (ficam no GitHub Releases, nao no repo)
+release-assets/
+dist/
+installer/redist/
+

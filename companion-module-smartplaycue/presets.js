@@ -2,7 +2,7 @@ export function getPresets() {
 	const pad = (v) => String(v).padStart(2, '0')
 	return [
 		{
-			category: 'SmartCue',
+			category: 'Smart Play Cue',
 			name: 'Play cue',
 			type: 'button',
 			style: {
@@ -15,7 +15,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue',
+			category: 'Smart Play Cue',
 			name: 'Stop cue',
 			type: 'button',
 			style: {
@@ -28,7 +28,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue',
+			category: 'Smart Play Cue',
 			name: 'Mute cue',
 			type: 'button',
 			style: {
@@ -41,7 +41,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue',
+			category: 'Smart Play Cue',
 			name: 'Master mute',
 			type: 'button',
 			style: {
@@ -54,7 +54,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue',
+			category: 'Smart Play Cue',
 			name: 'PANIC',
 			type: 'button',
 			style: {
@@ -67,7 +67,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue - Time',
+			category: 'Smart Play Cue - Time',
 			name: 'Hours (HH)',
 			type: 'button',
 			style: {
@@ -80,7 +80,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue - Time',
+			category: 'Smart Play Cue - Time',
 			name: 'Minutes (MM)',
 			type: 'button',
 			style: {
@@ -93,7 +93,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue - Time',
+			category: 'Smart Play Cue - Time',
 			name: 'Seconds (SS)',
 			type: 'button',
 			style: {
@@ -106,7 +106,7 @@ export function getPresets() {
 			feedbacks: [],
 		},
 		{
-			category: 'SmartCue - Time',
+			category: 'Smart Play Cue - Time',
 			name: 'Status',
 			type: 'button',
 			style: {
