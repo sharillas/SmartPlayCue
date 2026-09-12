@@ -701,6 +701,20 @@ public partial class MainWindow : Window
             {
                 var bmp = c.Thumbnail is null ? ShellThumbnail.Get(c.FilePath) : null;
 
+                // Fallback: Shell devolveu ícone de ficheiro (HAP/ProRes sem handler
+                // de thumbnails no Windows) -> extrair frame real via FFmpeg
+                // Ícone de ficheiro = bitmap quadrado (32..256px). Thumbnail real de
+                // vídeo nunca é quadrado (16:9, 4:3, etc.).
+                var isFileIcon = bmp is not null
+                    && bmp.PixelWidth >= 24
+                    && Math.Abs(bmp.PixelWidth - bmp.PixelHeight) <= 4;
+                VideoLog.Write($"Thumb: Shell={bmp?.PixelWidth}x{bmp?.PixelHeight} icon={isFileIcon} {c.Name}");
+                if (isFileIcon)
+                {
+                    ExtractThumb(c, 160, 90);
+                    bmp = null; // o ícone não serve; a frame real chega via Dispatcher
+                }
+
                 MediaInfo? info = c.InfoText.Length == 0 ? MediaInfoReader.Read(c.FilePath) : null;
 
                 if (bmp is null && info is null) return;
@@ -740,33 +754,49 @@ public partial class MainWindow : Window
             try
             {
                 // autoPlay false = PreRollFirstFrame decodes frame 0 synchronously
-                if (!dec.Open(cue.FilePath, autoPlay: false)) { dec.Dispose(); return; }
+                if (!dec.Open(cue.FilePath, autoPlay: false)) { VideoLog.Write($"ExtractThumb: Open FALHOU {cue.Name}"); dec.Dispose(); return; }
                 // after Open + PreRollFirstFrame, frame 0 should be decoded already
-                if (dec.FrameWidth == 0) { dec.Dispose(); return; }
+                if (dec.FrameWidth == 0) { VideoLog.Write($"ExtractThumb: FrameWidth=0 {cue.Name}"); dec.Dispose(); return; }
                 int w, h, stride;
                 byte[] copy;
                 lock (dec.FrameLock)
                 {
                     w = dec.FrameWidth; h = dec.FrameHeight; stride = dec.FrameStride;
                     var src = dec.FrameData;
-                    if (src is null || src.Length == 0) { dec.Dispose(); return; }
+                    if (src is null || src.Length == 0) { VideoLog.Write($"ExtractThumb: FrameData vazio {cue.Name}"); dec.Dispose(); return; }
                     copy = new byte[src.Length];
                     Buffer.BlockCopy(src, 0, copy, 0, src.Length);
+                    VideoLog.Write($"ExtractThumb: copiado {w}x{h} stride={stride} len={src.Length} {cue.Name}");
                 }
                 dec.Dispose();
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
-                        var bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, copy, w * 4);
-                        bmp.Freeze();
-                        cue.Thumbnail = bmp;
+                        var full = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, copy, w * 4);
+                        full.Freeze();
+                        if (w > maxW || h > maxH)
+                        {
+                            var scale = Math.Min((double)maxW / w, (double)maxH / h);
+                            var scaled = new TransformedBitmap(full, new ScaleTransform(scale, scale));
+                            scaled.Freeze();
+                            cue.Thumbnail = scaled;
+                        }
+                        else
+                        {
+                            cue.Thumbnail = full;
+                        }
+                        VideoLog.Write($"ExtractThumb: OK {cue.Name} {w}x{h} -> {maxW}x{maxH}");
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        VideoLog.Write($"ExtractThumb: EXCEPTION {cue.Name}: {ex.Message}");
+                    }
                 });
             }
-            catch
+            catch (Exception ex)
             {
+                VideoLog.Write($"ExtractThumb: CATCH {cue.Name}: {ex.Message}");
                 try { dec.Dispose(); } catch { }
             }
         });
