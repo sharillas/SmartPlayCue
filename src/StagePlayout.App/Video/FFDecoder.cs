@@ -149,10 +149,16 @@ public unsafe sealed class FFDecoder : IDisposable
                 return false;
             }
 
-            DurationTicks = _fmt->duration > 0 ? _fmt->duration * 10 : 0;
+            // Imagens estáticas (png/jpg/bmp/webp): container sem duração real.
+            // Duração sintética para o UI (slide fixo que faz hold no fim).
+            var isImage = _fmt->duration <= 0;
+            DurationTicks = isImage
+                ? TimeSpan.FromSeconds(10).Ticks
+                : _fmt->duration * 10;
 
             var fps = av_q2d(_vstream->avg_frame_rate);
             if (fps > 1) _frameDurMs = 1000.0 / fps;
+            else if (isImage) _frameDurMs = 1000.0; // 1 fps para slides
 
             if (_aidx >= 0)
                 SetupAudio(_fmt->streams[_aidx]);

@@ -54,6 +54,7 @@
     <Resource Include="Assets\Icons\tabler-corner-right-up-double.svg" />
     <Resource Include="Assets\Icons\tabler-trending-down-2.svg" />
     <Resource Include="Assets\app-icon.svg" />
+    <Resource Include="Assets\Fonts\BebasNeue-Regular.ttf" />
     <Resource Include="Assets\Fonts\Megrim.ttf" />
     <Resource Include="Assets\Icons\fit-screen.svg" />
     <Resource Include="Assets\Icons\aspect-ratio.svg" />

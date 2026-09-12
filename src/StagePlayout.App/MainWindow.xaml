@@ -144,7 +144,7 @@
                                  Height="36" Margin="0,0,8,0"/>
                 <StackPanel>
                     <TextBlock Text="Smart Play Cue" FontSize="32" FontWeight="Bold"
-                               FontFamily="pack://application:,,,/Assets/Fonts/#Megrim"/>
+                               FontFamily="pack://application:,,,/Assets/Fonts/#Bebas Neue"/>
                     <TextBlock Text="powered by smartchoice" FontSize="9"
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
