@@ -1,23 +1,29 @@
-# StagePixPlay
+# Smart Play Cue
 
 **Video playout software for live stage events** — minimalist, dark, fast.
 Cues, playlists (groups), GPU composition with layers (real alpha), instant GO,
 and full control via Bitfocus Companion / Stream Deck (OSC).
 
-Windows native (.exe installer — no .NET required). Developed by SmartChoice.
+Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-1.0.0-blue)
+![Status](https://img.shields.io/badge/version-2.0.0-green)
 
 ---
 
+## Branches
+
+| Branch | Descrição |
+|---|---|
+| `main` | **SmartCue** — versão master atual (D3D11 + FFmpeg) |
+| `legacy/stagepixplay` | StagePixPlay — base .NET original |
+| `legacy/smartvideoplayer` | SmartVideoPlayer — primeira tentativa (Python/PySide6) |
+
 ## Quick start
 
-1. Download `StagePixPlay-Setup-1.0.0.exe` from [Releases](../../releases)
-2. Install and run — no dependencies
-3. Drag videos into the list, press **Space = GO**
+1. Download `SmartCue-v2.0.0-win64.zip` from [Releases](../../releases)
+2. Extract and run `StagePixPlay.exe` — no dependencies
+3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
-
-**Documentation completa (PT):** [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)
 
 ## Highlights
 
@@ -25,15 +31,24 @@ Windows native (.exe installer — no .NET required). Developed by SmartChoice.
 - **Real crossfade** — custom D3D11 GPU compositor (video + audio)
 - **Layers with real alpha** — HAP Alpha / WebM overlays, PiP, lower-thirds
 - **Playlists (groups)** — expandable, loopable, auto-chained cue groups
-- **Stream Deck ready** — OSC control of everything (GO, layers, mutes, volume)
-- **Solid engine** — HW decode (D3D11VA), sub-ms frame pacing, deinterlacer
+- **Per-cue controls** — play/stop/pause/rewind, mute, fill mode, rotation (0/90/180/270)
+- **Cue IDs + color tags** — renumerated by list order, jump-to-cue chains
+- **Stream Deck ready** — OSC control of everything (GO, layers, mutes, volume, panic)
+- **Companion module included** — presets + HH/MM/SS remaining-time feedback
 - **Codecs** — MP4/MOV/MKV/WebM, H.264/HEVC/ProRes, **HAP** (the show codec)
+
+## Companion / OSC
+
+- OSC listen port: **8010**
+- OSC feedback port: **8011** (remaining time: `/smartcue/time/hh|mm|ss`)
+- Module: `companion-module-smartcue/` (base ~2.3.4)
 
 ## Build
 
 ```
-dotnet build            # .NET 8 SDK
-publish.ps1             # self-contained exe + Inno Setup installer
+dotnet build -c Release
+dotnet publish -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -o publish
 ```
 
 ## License
