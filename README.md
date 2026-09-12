@@ -12,9 +12,13 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Screenshots
 
-### Main window
+### Main window (media loaded)
 
 ![Smart Play Cue - Main Window](screenshots/main-window.png)
+
+### In production (cue playing)
+
+![Smart Play Cue - Playing](screenshots/main-window-playing.png)
 
 ### Output / Program display
 
