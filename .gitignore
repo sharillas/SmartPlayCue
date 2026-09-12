@@ -27,3 +27,7 @@ release-assets/
 dist/
 installer/redist/
 
+
+# Projeto antigo (preservado localmente + branch legacy no GitHub)
+SmartPlayer_old_Project/
+
