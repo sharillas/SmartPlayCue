@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\StagePlayout.Core\StagePlayout.Core.csproj" />
@@ -12,13 +12,13 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>2.1.1</Version>
+    <Version>2.1.2</Version>
     <Product>Smart Play Cue</Product>
     <AssemblyName>SmartPlayCue</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- WinForms só para deteção multi-ecrã; evitar ambiguidade de namespaces -->
+    <!-- WinForms only for multi-screen detection; avoid namespace ambiguity -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
   </ItemGroup>
