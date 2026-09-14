@@ -1,10 +1,14 @@
 using System.Net;
-using Rug.Osc;
+using System.Net.Sockets;
+using StagePlayout.App.Video;
+using StagePlayout.Core.Services;
 
 namespace StagePlayout.App.Services;
 
 /// <summary>
 /// Controlo remoto via OSC (UDP) — compatível com Bitfocus Companion / Stream Deck.
+/// Implementação própria (sem Rug.Osc): recebe comandos em :8010 e envia feedback
+/// (tempo restante) para o host/porta configurados em companion.json.
 ///
 /// Configuração no Companion:
 ///   1. Adicionar ligação "Generic OSC"
@@ -20,6 +24,7 @@ namespace StagePlayout.App.Services;
 ///   /stageplayout/cue  [int]      → tocar cue N (1-based)
 ///   /stageplayout/volume [0-1]    → volume master
 ///   /stageplayout/output [0|1]    → abrir/fechar janela de output
+///   /stageplayout/panic           → eject all
 ///   /stageplayout/layer/1/show    → mostrar camada 1 (layer flutuante)
 ///   /stageplayout/layer/1/hide    → ocultar camada 1
 ///   /stageplayout/layer/1/toggle  → alternar camada 1
@@ -28,18 +33,25 @@ namespace StagePlayout.App.Services;
 ///   /stageplayout/mute/toggle     → toggle mute master
 ///   /stageplayout/layer/1/mute [0|1]    → mute layer 1 (1 = muda)
 ///   /stageplayout/layer/1/mute/toggle   → toggle mute layer 1
+///
+/// Feedback enviado (para companion.json → FeedbackHost:FeedbackPort):
+///   /smartcue/time/hh|mm|ss       → horas/min/seg restantes (int)
+///   /smartcue/time/total          → segundos totais restantes (int)
+///   /smartcue/status              → "STANDBY" | "ON AIR" (string)
 /// </summary>
 public sealed class CompanionControl : IDisposable
 {
     public const int DefaultPort = 8010;
+    public const int DefaultFeedbackPort = 8011;
 
-    private readonly OscReceiver _receiver;
-    private OscSender? _sender;
+    private readonly UdpClient _receiver;
+    private UdpClient? _sender;
+    private readonly object _sendLock = new();
     private Thread? _thread;
     private volatile bool _running;
-    private readonly object _sendLock = new();
-    private string _sendHost = "127.0.0.1";
-    private int _sendPort = 8011;
+
+    private string _sendHost;
+    private int _sendPort;
 
     public event EventHandler? GoRequested;
     public event EventHandler? PauseRequested;
@@ -55,10 +67,42 @@ public sealed class CompanionControl : IDisposable
     public event EventHandler? MasterMuteToggleRequested;
     public event EventHandler<(int Layer, bool Muted)>? LayerMuteRequested;
     public event EventHandler<int>? LayerMuteToggleRequested;
+    public event EventHandler<(int Layer, bool Additive)>? LayerBlendRequested;
+    public event EventHandler<int>? LayerBlendToggleRequested;
     public event EventHandler<int>? CueMuteToggleRequested;        // 1-based
     public event EventHandler? PanicRequested;                     // eject all
 
     public int Port { get; }
+
+    /// <summary>IP/porta para onde o feedback (tempo restante) é enviado.</summary>
+    public string FeedbackHost => _sendHost;
+    public int FeedbackPort => _sendPort;
+
+    public CompanionControl(int port = DefaultPort, string feedbackHost = "127.0.0.1", int feedbackPort = DefaultFeedbackPort)
+    {
+        Port = port;
+        _sendHost = feedbackHost;
+        _sendPort = feedbackPort;
+        _receiver = new UdpClient();
+    }
+
+    public static CompanionControl FromConfig(CompanionConfig cfg)
+        => new(cfg.ListenPort, cfg.FeedbackHost, cfg.FeedbackPort);
+
+    /// <summary>Envia o contador de frame drops (saúde do vsync) para o Companion.</summary>
+    public void SendHealth(long drops)
+    {
+        Send($"/smartcue/health/drops", drops);
+    }
+
+    /// <summary>
+    /// Envia o cue atual para o Companion (nome + número; 0 = nenhum cue no ar).
+    /// </summary>
+    public void SendCueInfo(int? displayId, string? name)
+    {
+        Send($"/smartcue/cue/id", displayId ?? 0);
+        Send($"/smartcue/cue/name", name ?? "");
+    }
 
     /// <summary>
     /// Envia o tempo restante para o Companion (feedback nos botões HH/MM/SS).
@@ -71,7 +115,7 @@ public sealed class CompanionControl : IDisposable
         Send($"/smartcue/time/hh", hh);
         Send($"/smartcue/time/mm", mm);
         Send($"/smartcue/time/ss", ss);
-        Send($"/smartcue/time/total", remaining is { } r ? (long)r.TotalSeconds : 0L);
+        Send($"/smartcue/time/total", remaining is { } r ? (int)r.TotalSeconds : 0);
         Send($"/smartcue/status", status);
     }
 
@@ -83,10 +127,11 @@ public sealed class CompanionControl : IDisposable
             {
                 if (_sender is null)
                 {
-                    _sender = new OscSender(IPAddress.Parse(_sendHost), _sendPort);
-                    _sender.Connect();
+                    _sender = new UdpClient();
+                    _sender.Connect(_sendHost, _sendPort);
                 }
-                _sender.Send(new OscMessage(address, value));
+                var data = OscUdp.Pack(address, value);
+                _sender.Send(data, data.Length);
             }
         }
         catch
@@ -96,16 +141,21 @@ public sealed class CompanionControl : IDisposable
         }
     }
 
-    public CompanionControl(int port = DefaultPort)
-    {
-        Port = port;
-        _receiver = new OscReceiver(IPAddress.Any, port);
-    }
-
     public void Start()
     {
         if (_running) return;
         _running = true;
+
+        try
+        {
+            _receiver.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            _receiver.Client.Bind(new IPEndPoint(IPAddress.Any, Port));
+        }
+        catch (Exception ex)
+        {
+            VideoLog.Write($"OSC listen :{Port} FALHOU: {ex.Message}");
+        }
+
         _thread = new Thread(ListenLoop) { IsBackground = true, Name = "CompanionOSC" };
         _thread.Start();
     }
@@ -114,21 +164,19 @@ public sealed class CompanionControl : IDisposable
     {
         try
         {
-            _receiver.Connect();
             while (_running)
             {
-                var packet = _receiver.Receive(); // bloqueante
-                switch (packet)
+                IPEndPoint? remote = null;
+                byte[] data;
+                try
                 {
-                    case OscMessage msg:
-                        Dispatch(msg);
-                        break;
-                    case OscBundle bundle:
-                        foreach (var p in bundle)
-                            if (p is OscMessage m)
-                                Dispatch(m);
-                        break;
+                    data = _receiver.Receive(ref remote);
                 }
+                catch (SocketException) { break; }         // socket fechado no Dispose
+                catch (ObjectDisposedException) { break; }
+
+                foreach (var (address, args) in OscUdp.Unpack(data))
+                    Dispatch(address, args);
             }
         }
         catch
@@ -137,10 +185,9 @@ public sealed class CompanionControl : IDisposable
         }
     }
 
-    private void Dispatch(OscMessage msg)
+    private void Dispatch(string address, object?[] args)
     {
-        var address = msg.Address.ToLowerInvariant().TrimEnd('/');
-        var args = msg.ToArray();
+        address = address.ToLowerInvariant().TrimEnd('/');
 
         // Camadas flutuantes: /stageplayout/layer/{1|2}/{show|hide|toggle|mute|mute/toggle}
         if (address.StartsWith("/stageplayout/layer/"))
@@ -159,6 +206,12 @@ public sealed class CompanionControl : IDisposable
                             LayerMuteToggleRequested?.Invoke(this, layer);
                         else if (args.Length > 0 && ToInt(args[0], out var m))
                             LayerMuteRequested?.Invoke(this, (layer, m != 0));
+                        break;
+                    case "blend":
+                        if (toggle)
+                            LayerBlendToggleRequested?.Invoke(this, layer);
+                        else if (args.Length > 0 && ToInt(args[0], out var b))
+                            LayerBlendRequested?.Invoke(this, (layer, b != 0));
                         break;
                 }
             }
@@ -213,18 +266,20 @@ public sealed class CompanionControl : IDisposable
         }
     }
 
-    private static bool ToInt(object value, out int result)
+    private static bool ToInt(object? value, out int result)
     {
         switch (value)
         {
             case int i: result = i; return true;
             case float f: result = (int)f; return true;
+            case double d: result = (int)d; return true;
+            case bool b: result = b ? 1 : 0; return true;
             case string s when int.TryParse(s, out var p): result = p; return true;
             default: result = 0; return false;
         }
     }
 
-    private static bool ToDouble(object value, out double result)
+    private static bool ToDouble(object? value, out double result)
     {
         switch (value)
         {
@@ -242,5 +297,8 @@ public sealed class CompanionControl : IDisposable
         _running = false;
         try { _receiver.Close(); } catch { /* ignore */ }
         _receiver.Dispose();
+        try { _sender?.Close(); } catch { /* ignore */ }
+        _sender?.Dispose();
+        _sender = null;
     }
 }

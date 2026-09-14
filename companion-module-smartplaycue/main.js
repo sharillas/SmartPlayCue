@@ -2,20 +2,19 @@ import { InstanceBase, InstanceStatus, runEntrypoint } from '@companion-module/b
 import dgram from 'node:dgram'
 import { getPresets } from './presets.js'
 
+// OSC: strings têm sempre >=1 \0 terminador, depois padding até 4
+const pad = (s) => s + '\0'.repeat(4 - (s.length % 4))
+
 const OSC_PACK = (address, args) => {
-	const parts = [address].concat(args)
-	let out = ''
-	const pad = (s) => s + '\0'.repeat((4 - (s.length % 4)) % 4)
-	out += pad(parts[0])
-	for (let i = 1; i < parts.length; i++) {
-		const v = parts[i]
+	// mensagem OSC mínima: endereço + type tag (sempre presente) + argumentos
+	const tags = args.map((v) => (typeof v === 'number' ? 'f' : 's')).join('')
+	let out = pad(address) + pad(',' + tags)
+	for (const v of args) {
 		if (typeof v === 'number') {
-			out += pad(',f')
 			const buf = Buffer.alloc(4)
 			buf.writeFloatBE(v)
 			out += buf.toString('binary')
 		} else if (typeof v === 'string') {
-			out += pad(',s')
 			out += pad(v)
 		}
 	}
@@ -59,6 +58,24 @@ class SmartCueInstance extends InstanceBase {
 		this.updateStatus(InstanceStatus.Ok)
 
 		this.setActionDefinitions({
+			go: {
+				name: 'GO',
+				description: 'Avança para o próximo cue (toca)',
+				options: [],
+				callback: () => this.sendOsc('/stageplayout/go'),
+			},
+			prev: {
+				name: 'Previous cue',
+				description: 'Volta ao cue anterior',
+				options: [],
+				callback: () => this.sendOsc('/stageplayout/prev'),
+			},
+			pause: {
+				name: 'Pause / resume',
+				description: 'Alterna pausa/resume do cue no ar',
+				options: [],
+				callback: () => this.sendOsc('/stageplayout/pause'),
+			},
 			playCue: {
 				name: 'Play cue',
 				description: 'Toca uma cue específica pelo número',
@@ -76,9 +93,9 @@ class SmartCueInstance extends InstanceBase {
 			},
 			stopCue: {
 				name: 'Stop cue',
-				description: 'Para a cue em reprodução',
+				description: 'Para a cue em reprodução (fade to black)',
 				options: [],
-				callback: () => this.sendOsc('/stageplayout/stop', 1),
+				callback: () => this.sendOsc('/stageplayout/stop'),
 			},
 			muteCue: {
 				name: 'Mute cue audio',
@@ -99,13 +116,118 @@ class SmartCueInstance extends InstanceBase {
 				name: 'Master mute on/off',
 				description: 'Muta/desmuta o volume master',
 				options: [],
-				callback: () => this.sendOsc('/stageplayout/mute/toggle', 1),
+				callback: () => this.sendOsc('/stageplayout/mute/toggle'),
+			},
+			volume: {
+				name: 'Master volume',
+				description: 'Define o volume master (0-100)',
+				options: [
+					{
+						type: 'number',
+						label: 'Volume (0-100)',
+						id: 'volume',
+						default: 100,
+						min: 0,
+						max: 100,
+					},
+				],
+				callback: (action) => this.sendOsc('/stageplayout/volume', action.options.volume / 100),
+			},
+			output: {
+				name: 'Output window on/off',
+				description: 'Abre/fecha a janela de output (2.º ecrã)',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'State',
+						id: 'state',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Open' },
+							{ id: '0', label: 'Close' },
+						],
+					},
+				],
+				callback: (action) => this.sendOsc('/stageplayout/output', Number(action.options.state)),
+			},
+			layerShow: {
+				name: 'Layer show/hide/toggle',
+				description: 'Mostra/oculta/alterna uma layer (1 ou 2)',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Layer',
+						id: 'layer',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Layer 1' },
+							{ id: '2', label: 'Layer 2' },
+						],
+					},
+					{
+						type: 'dropdown',
+						label: 'Action',
+						id: 'action',
+						default: 'toggle',
+						choices: [
+							{ id: 'toggle', label: 'Toggle' },
+							{ id: 'show', label: 'Show' },
+							{ id: 'hide', label: 'Hide' },
+						],
+					},
+				],
+				callback: (action) =>
+					this.sendOsc(`/stageplayout/layer/${action.options.layer}/${action.options.action}`),
+			},
+			layerMute: {
+				name: 'Layer mute toggle',
+				description: 'Alterna o som de uma layer (1 ou 2)',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Layer',
+						id: 'layer',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Layer 1' },
+							{ id: '2', label: 'Layer 2' },
+						],
+					},
+				],
+				callback: (action) => this.sendOsc(`/stageplayout/layer/${action.options.layer}/mute/toggle`),
+			},
+			layerBlend: {
+				name: 'Layer blend mode',
+				description: 'Blend mode da layer: alpha normal ou aditivo (Add)',
+				options: [
+					{
+						type: 'dropdown',
+						label: 'Layer',
+						id: 'layer',
+						default: '1',
+						choices: [
+							{ id: '1', label: 'Layer 1' },
+							{ id: '2', label: 'Layer 2' },
+						],
+					},
+					{
+						type: 'dropdown',
+						label: 'Mode',
+						id: 'mode',
+						default: '0',
+						choices: [
+							{ id: '0', label: 'Normal (alpha)' },
+							{ id: '1', label: 'Add (additive)' },
+						],
+					},
+				],
+				callback: (action) => this.sendOsc(`/stageplayout/layer/${action.options.layer}/blend`, Number(action.options.mode)),
 			},
 			panic: {
 				name: 'PANIC - eject all',
 				description: 'Ejecta todas as cues (botão de pânico)',
 				options: [],
-				callback: () => this.sendOsc('/stageplayout/panic', 1),
+				callback: () => this.sendOsc('/stageplayout/panic'),
 			},
 		})
 
@@ -115,7 +237,43 @@ class SmartCueInstance extends InstanceBase {
 			{ variableId: 'ss', name: 'Remaining Seconds' },
 			{ variableId: 'total', name: 'Remaining Total Seconds' },
 			{ variableId: 'status', name: 'Status' },
+			{ variableId: 'cueId', name: 'Current cue number' },
+			{ variableId: 'cueName', name: 'Current cue name' },
+			{ variableId: 'drops', name: 'Frame drops (vsync)' },
 		])
+
+		this.setFeedbackDefinitions({
+			remainingTime: {
+				name: 'Remaining time (HH:MM:SS)',
+				type: 'advanced',
+				callback: () => {
+					const p2 = (v) => String(Math.max(0, v)).padStart(2, '0')
+					return {
+						text: `${p2(this.vars.hh)}:${p2(this.vars.mm)}:${p2(this.vars.ss)}`,
+					}
+				},
+			},
+			status: {
+				name: 'Status (ON AIR / STANDBY)',
+				type: 'advanced',
+				callback: () => ({ text: this.vars.status }),
+			},
+			currentCue: {
+				name: 'Current cue (number + name)',
+				type: 'advanced',
+				callback: () => ({
+					text: this.vars.cueId > 0 ? `CUE ${this.vars.cueId}\\n${this.vars.cueName}` : 'NO CUE',
+				}),
+			},
+			timeCritical: {
+				name: 'Alarm: last 5 seconds (red)',
+				type: 'advanced',
+				callback: () =>
+					this.vars.status === 'ON AIR' && this.vars.total > 0 && this.vars.total <= 5
+						? { bgcolor: 0xc62828, color: 0xffffff }
+						: { bgcolor: 0x222222, color: 0xffffff },
+			},
+		})
 
 		this.setPresetDefinitions(getPresets())
 		this.startListener()
@@ -164,6 +322,18 @@ class SmartCueInstance extends InstanceBase {
 				this.vars.status = typeof args[0] === 'string' ? args[0] : ''
 				this.setVariableValues({ status: this.vars.status })
 				break
+			case '/smartcue/cue/id':
+				this.vars.cueId = Math.floor(num(0))
+				this.setVariableValues({ cueId: this.vars.cueId })
+				break
+			case '/smartcue/cue/name':
+				this.vars.cueName = typeof args[0] === 'string' ? args[0] : ''
+				this.setVariableValues({ cueName: this.vars.cueName })
+				break
+			case '/smartcue/health/drops':
+				this.vars.drops = Math.floor(num(0))
+				this.setVariableValues({ drops: this.vars.drops })
+				break
 		}
 	}
 
@@ -185,14 +355,14 @@ class SmartCueInstance extends InstanceBase {
 			{
 				type: 'textinput',
 				id: 'host',
-				label: 'SmartCue IP (send)',
+				label: 'Smart Play Cue IP (send)',
 				default: '127.0.0.1',
 				width: 6,
 			},
 			{
 				type: 'number',
 				id: 'port',
-				label: 'SmartCue Port (send)',
+				label: 'Smart Play Cue Port (send)',
 				default: 8010,
 				min: 1,
 				max: 65535,

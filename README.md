@@ -1,12 +1,14 @@
 # Smart Play Cue
 
 **Video playout software for live stage events** — minimalist, dark, fast.
-Cues, playlists (groups), GPU composition with layers (real alpha), instant GO,
-and full control via Bitfocus Companion / Stream Deck (OSC).
+Cues, playlists (groups), GPU composition with layers (real alpha + blend modes),
+instant GO, crossfade cross/dip, program preview, per-project output presets,
+crash-safe operation, auto-backup, and full control via
+Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.1.0-green)
+![Status](https://img.shields.io/badge/version-2.5.0-green)
 
 ---
 
@@ -30,34 +32,63 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 | Branch | Descrição |
 |---|---|
-| `main` | **SmartCue** — versão master atual (D3D11 + FFmpeg) |
-| `legacy/stagepixplay` | StagePixPlay — base .NET original |
-| `legacy/smartvideoplayer` | SmartVideoPlayer — primeira tentativa (Python/PySide6) |
+| `main` | **Smart Play Cue** — versão master atual (D3D11 + FFmpeg) |
+
+(As versões antigas StagePixPlay e SmartVideoPlayer foram arquivadas fora do repo.)
 
 ## Quick start
 
-1. Download `SmartPlayCue-Setup-2.1.0.exe` (instalador) ou `SmartPlayCue-v2.1.0-win64.zip` (portátil) from [Releases](../../releases)
+1. Download `SmartPlayCue-v2.5.0-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.5.0.exe` (instalador) from [Releases](../../releases)
 2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
+   (right-click **External Display** to pick the display + refresh preset)
 
 ## Highlights
 
 - **Instant GO** — next cue preloaded and paused on frame 1
 - **Real crossfade** — custom D3D11 GPU compositor (video + audio)
-- **Layers with real alpha** — HAP Alpha / WebM overlays, PiP, lower-thirds
+- **Crossfade cross/dip** — dissolve sobreposto ou fade através de preto (por cue)
+- **Layers with real alpha + blend modes** — HAP Alpha / WebM overlays, PiP, lower-thirds, Normal/Add
+- **Multi-layers** — até 4 layers dinâmicas (adicionar/remover), persistidas no projeto
+- **Per-cue volume** — 25/50/75/100% por cue (aplicado ao áudio, guardado no projeto)
+- **Fade editor na linha** — pegas arrastáveis de fade in/out no timebar de cada cue
+- **PROGRAM preview** — live 30 fps preview of the composed output in the control window
+- **Overlay de confiança** — cue atual + tempo restante no canto do ecrã de palco (botão OVL)
+- **Output presets per project** — output display + refresh rate saved in the project file
+- **Crash-safe** — global exception handlers; UI errors never kill the show
+  (log + minidump em `%TEMP%`)
+- **TDR-safe** — se a GPU reiniciar o driver, o compositor recria o device e continua
+- **Áudio isolado** — falha do device de áudio nunca congela o vídeo
+- **Projeto corrompido?** — o load cai automaticamente no auto-backup `.bak`
+- **Projetos portáteis** — media dentro da pasta do show é guardada como caminho relativo
+- **Output guard** — Escape on the stage display requires Ctrl+Shift+Esc (no accidental kills)
+- **Show mode (Ctrl+L)** — lock UI: sem context menus/drag/add media acidentais em live
+- **Auto-backup rotativo** — 5 cópias com timestamp (`*.bak.yyyyMMdd-HHmmss`)
+- **CLI kiosk** — `SmartPlayCue.exe show.stageplayout.json --output --autoplay`
+- **`--selftest`** — verificação pré-show automática (toca tudo, layers, exit code + relatório)
+- **Frame drops monitor** — contador de vsync perdidos na status bar + OSC
+- **Dirty indicator** — the title shows "•" and closing prompts to save
 - **Playlists (groups)** — expandable, loopable, auto-chained cue groups
 - **Per-cue controls** — play/stop/pause/rewind, mute, fill mode, rotation (0/90/180/270)
 - **Cue IDs + color tags** — renumerated by list order, jump-to-cue chains
-- **Stream Deck ready** — OSC control of everything (GO, layers, mutes, volume, panic)
-- **Companion module included** — presets + HH/MM/SS remaining-time feedback
+- **Stream Deck ready** — OSC control of everything (GO, prev, pause, layers, mutes, blend, volume, panic)
+- **Companion module included** — presets + HH/MM/SS remaining-time feedback + current cue
 - **Codecs** — MP4/MOV/MKV/WebM, H.264/HEVC/ProRes, **HAP** (the show codec)
 
 ## Companion / OSC
 
 - OSC listen port: **8010**
 - OSC feedback port: **8011** (remaining time: `/smartcue/time/hh|mm|ss`)
-- Module: `companion-module-smartcue/` (base ~2.3.4)
+- Feedback target is configurable in **`companion.json`** (created next to the exe on
+  first run) — set `FeedbackHost` to the IP of the machine running Companion
+- Module: `companion-module-smartplaycue/` (`smartplaycue-2.5.0.tgz`)
+
+## Tests
+
+```
+dotnet test SmartCue.sln -c Release
+```
 
 ## Build
 

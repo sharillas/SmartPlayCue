@@ -56,8 +56,11 @@ public unsafe sealed class FFDecoder : IDisposable
     private int _vidx = -1, _aidx = -1;
     private int _inRate;
 
-    // HW decode (D3D11VA): GPU descodifica; transferência NV12->CPU e sws->BGRA
-    private AVBufferRef* _hwDevice;
+    // HW decode (D3D11VA): device único PARTILHADO entre todos os decoders
+    // (criado 1× por processo; cada contexto fica com uma ref av_buffer_ref).
+    // Transferência NV12->CPU e sws->BGRA.
+    private static AVBufferRef* _sharedHw;
+    private static readonly object HwLock = new();
     private bool _hwActive;
     private AVFrame* _swFrame;
 
@@ -92,6 +95,7 @@ public unsafe sealed class FFDecoder : IDisposable
 
     private Thread? _thread;
     private volatile bool _quit;
+    private bool _audioFailed;
 
     static FFDecoder()
     {
@@ -134,13 +138,22 @@ public unsafe sealed class FFDecoder : IDisposable
             avcodec_parameters_to_context(_vctx, _vstream->codecpar);
             _vctx->thread_count = 0; // auto (multithread)
 
-            // HW decode D3D11VA (se disponível): menos CPU, mais fluidez
-            AVBufferRef* hwdev = null;
-            if (av_hwdevice_ctx_create(&hwdev, AVHWDeviceType.D3d11va, null, null, 0) >= 0)
+            // HW decode D3D11VA (se disponível): menos CPU, mais fluidez.
+            // O device é partilhado entre decoders — criar/destruir por transição
+            // era caro e podia fragmentar a memória GPU.
+            lock (HwLock)
             {
-                _vctx->hw_device_ctx = av_buffer_ref(hwdev);
-                _hwDevice = hwdev;
-                _hwActive = true;
+                if (_sharedHw == null)
+                {
+                    AVBufferRef* dev = null;
+                    if (av_hwdevice_ctx_create(&dev, AVHWDeviceType.D3d11va, null, null, 0) >= 0)
+                        _sharedHw = dev;
+                }
+                if (_sharedHw != null)
+                {
+                    _vctx->hw_device_ctx = av_buffer_ref(_sharedHw); // ref própria deste contexto
+                    _hwActive = true;
+                }
             }
 
             if (avcodec_open2(_vctx, vcodec, null) < 0)
@@ -273,6 +286,7 @@ public unsafe sealed class FFDecoder : IDisposable
 
     private void Pump()
     {
+        var videoErrors = 0;
         while (!_quit)
         {
             try
@@ -294,19 +308,57 @@ public unsafe sealed class FFDecoder : IDisposable
                 }
 
                 if (_pkt->stream_index == _vidx)
+                {
                     SendVideo(_pkt, pace: true);
+                    videoErrors = 0;
+                }
                 else if (_pkt->stream_index == _aidx && _actx != null)
-                    SendAudio(_pkt);
+                {
+                    // áudio isolado: uma falha aqui (ex.: device USB desligado)
+                    // NUNCA pode congelar o vídeo — desativa o áudio e continua
+                    try
+                    {
+                        SendAudio(_pkt);
+                    }
+                    catch (Exception ex)
+                    {
+                        VideoLog.Write($"FFDecoder audio ERRO: {ex.Message}");
+                        DisableAudio();
+                    }
+                }
 
                 av_packet_unref(_pkt);
             }
             catch (Exception ex)
             {
-                Error = ex.Message;
-                State = DecoderState.Failed;
-                VideoLog.Write($"FFDecoder pump EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                // caminho de vídeo: tolerar falhas esporádicas; só falha após N seguidas
+                if (++videoErrors > 5)
+                {
+                    Error = ex.Message;
+                    State = DecoderState.Failed;
+                    VideoLog.Write($"FFDecoder pump EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+                    Thread.Sleep(100);
+                }
+                else
+                {
+                    VideoLog.Write($"FFDecoder pump WARN ({videoErrors}/5): {ex.Message}");
+                }
             }
         }
+    }
+
+    /// <summary>Desativa o caminho de áudio após uma falha (o vídeo continua no ar).</summary>
+    private void DisableAudio()
+    {
+        if (_audioFailed) return;
+        _audioFailed = true;
+        try { _wasapi?.Stop(); } catch { }
+        try { _wasapi?.Dispose(); } catch { }
+        _wasapi = null;
+        _waveProvider = null;
+        _volProvider = null;
+        _aidx = -1; // não processar mais pacotes de áudio
+        VideoLog.Write("FFDecoder: áudio desativado após erro — vídeo continua");
     }
 
     /// <summary>
@@ -539,6 +591,25 @@ public unsafe sealed class FFDecoder : IDisposable
                     var n = swr_convert(_swr, &outPtr, outSamples, (byte**)&_aframe->data, _aframe->nb_samples);
                     if (n > 0)
                     {
+                        // picos reais para o VU meter da UI (máx. absoluto por canal,
+                        // attack imediato + decay suave para leitura natural)
+                        var samples = n * 2;
+                        var maxL = 0;
+                        var maxR = 0;
+                        fixed (byte* pBuf = _audioBuf)
+                        {
+                            var s = (short*)pBuf;
+                            for (var i = 0; i < samples; i += 2)
+                            {
+                                var l = Math.Abs((int)s[i]);
+                                var r = Math.Abs((int)s[i + 1]);
+                                if (l > maxL) maxL = l;
+                                if (r > maxR) maxR = r;
+                            }
+                        }
+                        AudioPeakL = (float)Math.Max(maxL / 32768.0, AudioPeakL * 0.90);
+                        AudioPeakR = (float)Math.Max(maxR / 32768.0, AudioPeakR * 0.90);
+
                         // throttle limitado: nunca bloquear o pump para sempre
                         var waited = 0;
                         while (!_quit && State == DecoderState.Playing && waited < 400 &&
@@ -599,7 +670,6 @@ public unsafe sealed class FFDecoder : IDisposable
         if (_aframe != null) { fixed (AVFrame** p = &_aframe) av_frame_free(p); }
         if (_swFrame != null) { fixed (AVFrame** p = &_swFrame) av_frame_free(p); }
         if (_filtFrame != null) { fixed (AVFrame** p = &_filtFrame) av_frame_free(p); }
-        if (_hwDevice != null) { fixed (AVBufferRef** p = &_hwDevice) av_buffer_unref(p); }
         if (_filterGraph != null) { fixed (AVFilterGraph** p = &_filterGraph) avfilter_graph_free(p); }
         if (_fmt != null) { fixed (AVFormatContext** p = &_fmt) avformat_close_input(p); }
     }

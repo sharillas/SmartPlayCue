@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build + Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        run: dotnet build SmartCue.sln -c Release
+
+      - name: Test
+        run: dotnet test SmartCue.sln -c Release --no-build
+
+  publish:
+    name: Publish (tag only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish (self-contained single-file)
+        run: dotnet publish src\StagePlayout.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+
+      - name: Copy FFmpeg nativo
+        shell: pwsh
+        run: Copy-Item thirdparty\FFmpeg publish\FFmpeg -Recurse -Force
+
+      - name: Zip portátil
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath release-assets\SmartPlayCue-win64.zip -Force
+
+      - name: Pack módulo Companion
+        working-directory: companion-module-smartplaycue
+        run: npm pack
+        env:
+          CI: 'true'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            release-assets/SmartPlayCue-win64.zip
+            companion-module-smartplaycue/*.tgz
+          if-no-files-found: error

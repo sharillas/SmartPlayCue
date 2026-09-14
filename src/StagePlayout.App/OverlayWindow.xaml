@@ -1,0 +1,15 @@
+<Window x:Class="StagePlayout.App.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        IsHitTestVisible="False" Focusable="False" ResizeMode="NoResize">
+    <Grid>
+        <Border HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                Margin="40,0,0,40" Background="#CC000000" CornerRadius="6" Padding="18,8">
+            <TextBlock x:Name="OvlText" Text="—"
+                       FontFamily="Consolas" FontSize="26" FontWeight="SemiBold"
+                       Foreground="White"/>
+        </Border>
+    </Grid>
+</Window>

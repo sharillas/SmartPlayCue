@@ -16,6 +16,9 @@ public class ShortcutConfig
     public string Stop { get; set; } = "S";
     public string Pause { get; set; } = "P";
 
+    /// <summary>Intervalo do auto-backup do projeto em minutos (0 = desligado).</summary>
+    public int AutoBackupMinutes { get; set; } = 5;
+
     public static ShortcutConfig Load()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "shortcuts.json");

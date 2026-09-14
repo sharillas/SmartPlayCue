@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -8,7 +10,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
-using System.Windows.Media.Imaging;
 using StagePlayout.App.Services;
 using StagePlayout.App.Video;
 using StagePlayout.Core.Models;
@@ -19,9 +20,21 @@ namespace StagePlayout.App;
 public partial class MainWindow : Window
 {
     private readonly Playlist _playlist = new();
-    private readonly MediaPool _mediaPool = new();
-    private readonly CompanionControl _companion = new();
+    private readonly CompanionControl _companion = CompanionControl.FromConfig(CompanionConfig.Load());
     private readonly DispatcherTimer _uiTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    private readonly DispatcherTimer _backupTimer = new() { Interval = TimeSpan.FromMinutes(1) };
+    private WriteableBitmap? _previewBmp;
+    private byte[] _previewBuf = Array.Empty<byte>();
+    private string _restoreRefreshDevice = "";
+    private int _restoreRefreshFreq;
+
+    // Projeto: estado sujo (prompt ao fechar) + caminho atual (auto-backup)
+    private bool _projectDirty;
+    private string _projectPath = "";
+
+    // Dip: transição a meio (outgoing a descer → incoming arranca no fim do fade)
+    private (int Gen, int OutSlot, int InSlot, FFDecoder Dec, double FadeIn)? _pendingDip;
 
     // Engine de programa: FFDecoders próprios alimentam o compositor GPU
     // (2 slots com crossfade real). Preload = decoder aberto em pausa no 1.º frame.
@@ -38,30 +51,20 @@ public partial class MainWindow : Window
 
 
 
-    // Layers flutuantes L1/L2 (índice 1 e 2) — slots 2 e 3 do compositor
-    private class LayerState
-    {
-        public FFDecoder? Decoder;
-        public string? File;
-        public bool Visible;
-        public bool Muted = true; // layers começam mudas (logos/lower-thirds)
-        public double X, Y, W, H;
-    }
+    // Layers dinâmicas (até 4) — slots 2..5 do compositor
+    private const int MaxLayers = 4;
+    private readonly ObservableCollection<LayerVm> _layerVms = new();
+    private int _selectedLayer; // 0-based
     private bool _masterMuted;
     private string _masterAudioDevice = "";
     private int _oscTick;
-    private readonly LayerState[] _layers =
-    {
-        null!, // índice 0 não usado
-        new LayerState { X = 0.68, Y = 0.66, W = 0.28, H = 0.28 }, // L1: canto inf. direito
-        new LayerState { X = 0.68, Y = 0.04, W = 0.28, H = 0.28 }, // L2: canto sup. direito
-    };
 
     // Atalhos configuráveis (shortcuts.json na pasta do exe)
     private readonly ShortcutConfig _shortcuts = ShortcutConfig.Load();
     private Key _keyGo, _keyNext, _keyPrev, _keyStop, _keyPause;
 
     private OutputWindow? _output;
+    private OverlayWindow? _overlay;
     private string _outputInfo = "—";
 
     private System.ComponentModel.ICollectionView? _cuesView;
@@ -97,12 +100,26 @@ public partial class MainWindow : Window
         _cuesView.Filter = o => o is Cue c && (!c.IsChild || IsParentExpanded(c));
         CueList.ItemsSource = _cuesView;
 
+        // layers iniciais L1/L2 (lista dinâmica até 4)
+        _layerVms.Add(new LayerVm(new LayerState { X = 0.68, Y = 0.66, W = 0.28, H = 0.28 }, 0));
+        _layerVms.Add(new LayerVm(new LayerState { X = 0.68, Y = 0.04, W = 0.28, H = 0.28 }, 1));
+        _selectedLayer = 0;
+        RefreshLayerSelection();
+        LayerList.ItemsSource = _layerVms;
+
         _playlist.CurrentChanged += (_, _) => OnCurrentChanged();
+        _playlist.Cues.CollectionChanged += (_, _) => MarkDirty();
 
         PreloadNext();
 
         _uiTimer.Tick += UiTimer_Tick;
         _uiTimer.Start();
+
+        _previewTimer.Tick += PreviewTimer_Tick;
+        _previewTimer.Start();
+
+        _backupTimer.Tick += BackupTimer_Tick;
+        _backupTimer.Start();
 
         HookCompanion();
         _companion.Start();
@@ -114,8 +131,281 @@ public partial class MainWindow : Window
         _keyPause = ParseKey(_shortcuts.Pause, Key.P);
 
         Loaded += (_, _) => RefreshGeomEditor();
+        Loaded += (_, _) => LoadStartupProject();
+        Loaded += (_, _) => RestoreWindowState();
 
         UpdateStatus();
+    }
+
+    /// <summary>Restaura posição/tamanho da janela e reabre o último projeto (se existir).</summary>
+    private void RestoreWindowState()
+    {
+        var st = AppState.Load();
+
+        if (st.Width >= MinWidth && st.Height >= MinHeight)
+        {
+            if (!double.IsNaN(st.Left) && !double.IsNaN(st.Top))
+            {
+                // só aplica se cair dentro de algum ecrã (multi-monitor pode mudar)
+                var bounds = new System.Drawing.Rectangle(
+                    (int)st.Left, (int)st.Top, (int)st.Width, (int)st.Height);
+                var visible = System.Windows.Forms.Screen.AllScreens
+                    .Any(s => s.WorkingArea.IntersectsWith(bounds));
+                if (visible)
+                {
+                    Left = st.Left;
+                    Top = st.Top;
+                }
+            }
+            Width = st.Width;
+            Height = st.Height;
+        }
+        if (st.Maximized)
+            WindowState = WindowState.Maximized;
+
+        // reabrir o último projeto (a menos que a linha de comandos tenha dado outro)
+        if (App.StartupProject is null && st.LastProjectPath.Length > 0 &&
+            File.Exists(st.LastProjectPath))
+        {
+            try
+            {
+                LoadProject(st.LastProjectPath);
+                TxtStatus.Text = $"Projeto reaberto: {Path.GetFileName(st.LastProjectPath)}";
+            }
+            catch
+            {
+                // ficheiro inválido — arranca vazio
+            }
+        }
+    }
+
+    // ===== Projeto: estado sujo / auto-backup / carga CLI =====
+
+    private static readonly HashSet<string> EditorProps = new(StringComparer.Ordinal)
+    {
+        nameof(Cue.Name), nameof(Cue.End), nameof(Cue.FadeInSeconds), nameof(Cue.FadeOutSeconds),
+        nameof(Cue.Volume), nameof(Cue.IsGroup), nameof(Cue.IsExpanded), nameof(Cue.ParentId),
+        nameof(Cue.LoopGroup), nameof(Cue.TagColor), nameof(Cue.FillMode), nameof(Cue.Rotation),
+        nameof(Cue.IsAudioMuted), nameof(Cue.NextCueId), nameof(Cue.JumpTargetId), nameof(Cue.FadeType),
+    };
+
+    private void OnCueEditorChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is { } p && EditorProps.Contains(p)) MarkDirty();
+    }
+
+    private void HookCueEdits(Cue cue) => cue.PropertyChanged += OnCueEditorChanged;
+
+    private void MarkDirty()
+    {
+        if (_projectDirty) return;
+        _projectDirty = true;
+        UpdateTitle();
+    }
+
+    private void ClearDirty()
+    {
+        _projectDirty = false;
+        UpdateTitle();
+    }
+
+    private void UpdateTitle()
+    {
+        Title = "Smart Play Cue" + (_showMode ? " — SHOW MODE" : "") + (_projectDirty ? " •" : "");
+    }
+
+    // ===== Show mode (lock UI em live) =====
+
+    private bool _showMode;
+
+    private void BtnShowMode_Toggled(object sender, RoutedEventArgs e)
+        => SetShowMode(BtnShowMode.IsChecked == true);
+
+    private void SetShowMode(bool on)
+    {
+        _showMode = on;
+        CueList.ItemContainerStyle =
+            (Style)FindResource(on ? "CueItemStyleLocked" : "CueItemStyle");
+        CueList.AllowDrop = !on;
+        BtnAddMedia.IsEnabled = !on;
+        BtnOpenProject.IsEnabled = !on;
+        UpdateTitle();
+
+        TxtStatus.Text = on
+            ? "SHOW MODE — edições bloqueadas (Ctrl+L para sair)"
+            : "Show mode desligado";
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        t.Tick += (_, _) => { UpdateStatus(); t.Stop(); };
+        t.Start();
+    }
+
+    private void LoadStartupProject()
+    {
+        // modo de verificação pré-show: toca todos os cues, exercita layers, sai com exit code
+        if (App.StartupSelfTest)
+        {
+            RunSelfTest(App.StartupProject);
+            return;
+        }
+
+        var path = App.StartupProject;
+        if (path is not null)
+        {
+            try
+            {
+                LoadProject(path);
+                TxtStatus.Text = $"Projeto carregado: {Path.GetFileName(path)}";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Erro ao abrir projeto (argumento)",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // arranque desatendido (kiosk): --output abre o output; --autoplay toca o 1.º cue
+        if (App.StartupOpenOutput)
+        {
+            SetOutput(true);
+            if (App.StartupAutoPlay)
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, Go);
+        }
+    }
+
+    /// <summary>
+    /// --selftest: verificação automatizada pré-show. Escreve o relatório em
+    /// %TEMP%\stageplayout_selftest.log e termina com exit code 0 (OK) ou 1 (falha).
+    /// </summary>
+    private async void RunSelfTest(string? projectPath)
+    {
+        WindowState = WindowState.Minimized;
+        var log = new List<string>();
+        var failures = 0;
+        void L(string s)
+        {
+            log.Add($"{DateTime.Now:HH:mm:ss} {s}");
+            VideoLog.Write($"SELFTEST: {s}");
+        }
+
+        try
+        {
+            L($"SELFTEST arranque — projeto: {projectPath ?? "(nenhum)"}");
+            if (projectPath is not null)
+                LoadProject(projectPath);
+
+            var cues = _playlist.Cues.Where(c => !c.IsGroup).ToList();
+            if (cues.Count == 0)
+            {
+                L("FAIL: projeto sem cues");
+                failures++;
+                FinishSelfTest(log, failures);
+                return;
+            }
+            L($"projeto carregado: {cues.Count} cues");
+
+            SetOutput(true);
+            await Task.Delay(2000); // compositor a carregar
+
+            foreach (var cue in cues)
+            {
+                var idx = _playlist.Cues.IndexOf(cue);
+                _playlist.Select(idx);
+                TransitionTo(cue);
+                await Task.Delay(1200);
+
+                var dec = _liveSlot >= 0 ? _slotDec[_liveSlot] : null;
+                if (dec is null || dec.State != DecoderState.Playing)
+                {
+                    L($"FAIL: cue {cue.DisplayId} '{cue.Name}' não está a tocar");
+                    failures++;
+                }
+                else
+                {
+                    L($"OK: cue {cue.DisplayId} '{cue.Name}' ({dec.FrameWidth}x{dec.FrameHeight} " +
+                      $"{dec.DurationTicks / TimeSpan.TicksPerSecond}s)");
+                }
+            }
+
+            foreach (var vm in _layerVms.ToList())
+            {
+                if (vm.State.File is not { } f) continue;
+                SetLayerVisible(vm.Index, true);
+                await Task.Delay(700);
+                if (vm.State.Decoder is null)
+                {
+                    L($"FAIL: {vm.Label} '{Path.GetFileName(f)}' não abriu");
+                    failures++;
+                }
+                else
+                {
+                    L($"OK: {vm.Label} '{Path.GetFileName(f)}' a tocar");
+                }
+                SetLayerVisible(vm.Index, false);
+                await Task.Delay(400);
+            }
+
+            StopPlayback();
+            L($"drops de vsync: {_output?.Compositor?.DropCount ?? 0}");
+            L(failures == 0 ? "SELFTEST COMPLETO — TUDO OK" : $"SELFTEST COM FALHAS ({failures})");
+            FinishSelfTest(log, failures);
+        }
+        catch (Exception ex)
+        {
+            L($"EXCEPTION: {ex}");
+            FinishSelfTest(log, failures + 1);
+        }
+    }
+
+    private void FinishSelfTest(List<string> log, int failures)
+    {
+        try
+        {
+            File.WriteAllLines(
+                Path.Combine(Path.GetTempPath(), "stageplayout_selftest.log"), log);
+        }
+        catch { }
+        Dispatcher.BeginInvoke(() => Application.Current.Shutdown(failures == 0 ? 0 : 1));
+    }
+
+    private void BackupTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_shortcuts.AutoBackupMinutes <= 0 || _projectPath.Length == 0 ||
+            !_projectDirty || _playlist.Cues.Count == 0)
+            return;
+
+        try
+        {
+            var bak = _projectPath + ".bak";
+            SaveProjectTo(bak);
+            RotateBackups(bak, keep: 5);
+            VideoLog.Write($"Auto-backup: {bak}");
+        }
+        catch (Exception ex)
+        {
+            VideoLog.Write($"Auto-backup FALHOU: {ex.Message}");
+        }
+    }
+
+    /// <summary>Mantém as N cópias de backup mais recentes (`.bak.yyyyMMdd-HHmmss`).</summary>
+    private static void RotateBackups(string bakPath, int keep)
+    {
+        var dir = Path.GetDirectoryName(bakPath);
+        if (string.IsNullOrEmpty(dir)) return;
+        var name = Path.GetFileName(bakPath);
+        var rotated = Path.Combine(dir, $"{name}.{DateTime.Now:yyyyMMdd-HHmmss}");
+        try
+        {
+            File.Copy(bakPath, rotated);
+            var old = Directory.GetFiles(dir, name + ".*")
+                              .OrderByDescending(f => f)
+                              .Skip(keep)
+                              .ToList();
+            foreach (var f in old)
+            {
+                try { File.Delete(f); } catch { }
+            }
+        }
+        catch { /* rotação best-effort */ }
     }
 
     private static Key ParseKey(string? name, Key fallback)
@@ -193,6 +483,11 @@ public partial class MainWindow : Window
         var newSlot = _liveSlot == 0 ? 1 : 0;
         Video.VideoLog.Write($"Transição -> slot {newSlot}: {cue.Name}");
 
+        // Race STOP→GO: o slot pode estar em fade-out de um stop anterior.
+        // Cancelar o fecho pendente para o OnFadeCompleted não matar o decoder NOVO.
+        _closingSlots.Remove(newSlot);
+        _pendingDip = null;
+
         incoming.Loop = cue.End == CueEnd.Loop;
         incoming.Volume = VolumeSlider.Value / 100.0;
         incoming.Ended += Decoder_Ended;
@@ -207,19 +502,33 @@ public partial class MainWindow : Window
         ApplyFillGeometry(cue, incoming, comp, newSlot);
         comp.SetZ(newSlot, gen);            // o mais recente desenha por cima
         comp.SetOpacity(newSlot, 0, 0);
+        comp.SetVolumeScale(newSlot, Math.Clamp(cue.Volume, 0.0, 1.0));
         ApplyVolumes();                     // respeita master mute
         if (cue.IsAudioMuted) incoming.Volume = 0; // per-cue mute
-        incoming.Play();
-        comp.SetOpacity(newSlot, 1, cue.FadeInSeconds);   // fade-in
-        // (layers têm prioridade fixa no draw order do compositor)
 
-        // Outgoing: fade-out e dispose no fim do fade
         var oldSlot = _liveSlot;
-        if (oldSlot >= 0 && oldSlot != newSlot && _slotDec[oldSlot] is not null)
+        var dip = cue.FadeType == FadeType.Dip;
+        var hasOutgoing = oldSlot >= 0 && oldSlot != newSlot && _slotDec[oldSlot] is not null;
+
+        if (dip && hasOutgoing)
         {
+            // Dip (via preto): outgoing desce primeiro; o incoming arranca no fim do fade
             _closingSlots.Add(oldSlot);
             comp.SetOpacity(oldSlot, 0, cue.FadeOutSeconds);
+            _pendingDip = (gen, oldSlot, newSlot, incoming, cue.FadeInSeconds);
         }
+        else
+        {
+            incoming.Play();
+            comp.SetOpacity(newSlot, 1, cue.FadeInSeconds);   // fade-in
+            if (hasOutgoing)
+            {
+                // Outgoing (cross): fade-out e dispose no fim do fade
+                _closingSlots.Add(oldSlot);
+                comp.SetOpacity(oldSlot, 0, cue.FadeOutSeconds);
+            }
+        }
+        // (layers têm prioridade fixa no draw order do compositor)
 
         _liveSlot = newSlot;
 
@@ -236,20 +545,39 @@ public partial class MainWindow : Window
         // render thread -> BeginInvoke (NUNCA Invoke: bloqueava o render se a UI estiver ocupada)
         Dispatcher.BeginInvoke(() =>
         {
-            // slots de layers (2,3)
+            // slots de layers (2..5)
             if (slot >= 2)
             {
                 if (!_closingLayerSlots.Remove(slot)) return;
-                var li = slot - 1;
-                _layers[li].Decoder?.Dispose();
-                _layers[li].Decoder = null;
+                var li = slot - 2;
+                if (li < _layerVms.Count)
+                {
+                    _layerVms[li].State.Decoder?.Dispose();
+                    _layerVms[li].State.Decoder = null;
+                }
                 _output?.Compositor?.SetSource(slot, null);
                 return;
             }
 
             // slots de programa (0,1)
-            if (!_closingSlots.Contains(slot)) return;
-            _closingSlots.Remove(slot);
+            var wasClosing = _closingSlots.Remove(slot);
+
+            // Dip: fade-out do outgoing terminou → arrancar o incoming
+            if (_pendingDip is { } d && d.OutSlot == slot && d.Gen == _transitionGen)
+            {
+                _pendingDip = null;
+                if (_slotDec[d.InSlot] is { } dec && ReferenceEquals(dec, d.Dec))
+                {
+                    d.Dec.Play();
+                    _output?.Compositor?.SetOpacity(d.InSlot, 1, d.FadeIn);
+                }
+                else
+                {
+                    d.Dec.Dispose(); // transição substituída entretanto
+                }
+            }
+
+            if (!wasClosing) return;
             _slotDec[slot]?.Dispose();
             _slotDec[slot] = null;
             _output?.Compositor?.SetSource(slot, null);
@@ -350,6 +678,9 @@ public partial class MainWindow : Window
 
     private Cue? _lastLiveCue;
 
+    /// <summary>Limite de extrações de thumbnail em paralelo (decoders FFmpeg por ficheiro).</summary>
+    private static readonly SemaphoreSlim ThumbSemaphore = new(3, 3);
+
     private static readonly SolidColorBrush CritBrush = Freeze(Color.FromRgb(0xEF, 0x44, 0x44));
 
     private static SolidColorBrush Freeze(Color c)
@@ -401,8 +732,12 @@ public partial class MainWindow : Window
         if (live is null)
         {
             UpdateBigRemaining(null);
+            UpdateOverlay("—");
             if (++_oscTick % 4 == 0)
+            {
                 _companion.SendRemainingTime(null, "STANDBY");
+                _companion.SendCueInfo(0, "");
+            }
             return;
         }
 
@@ -413,9 +748,17 @@ public partial class MainWindow : Window
 
         UpdateBigRemaining(live.DurationTicks > 0 ? remaining : null);
 
-        // OSC feedback: remaining time (1x por segundo)
+        UpdateOverlay(current is not null
+            ? $"CUE {current.DisplayId} — {current.Name}    -{remaining:hh\\:mm\\:ss}"
+            : "—");
+
+        // OSC feedback: remaining time + cue atual (1x por segundo)
         if (++_oscTick % 4 == 0)
+        {
             _companion.SendRemainingTime(live.DurationTicks > 0 ? remaining : null, "ON AIR");
+            _companion.SendCueInfo(current?.DisplayId ?? 0, current?.Name);
+            _companion.SendHealth(_output?.Compositor?.DropCount ?? 0);
+        }
 
         if (current is not null)
         {
@@ -431,12 +774,11 @@ public partial class MainWindow : Window
         if (current is not null)
             live.Loop = current.End == CueEnd.Loop;
 
-        // update audio VU peaks from decoder (simple pulse for now)
+        // VU meter real: picos calculados pelo decoder (0..1 → px no meter de 16px)
         if (current is not null && current.HasAudio && live.State == DecoderState.Playing)
         {
-            var rng = new Random();
-            current.AudioPeakL = Math.Max(2, current.AudioPeakL * 0.8 + rng.NextDouble() * 6);
-            current.AudioPeakR = Math.Max(2, current.AudioPeakR * 0.8 + rng.NextDouble() * 6);
+            current.AudioPeakL = Math.Clamp(live.AudioPeakL, 0, 1) * 16;
+            current.AudioPeakR = Math.Clamp(live.AudioPeakR, 0, 1) * 16;
         }
         else if (current is not null)
         {
@@ -463,11 +805,13 @@ public partial class MainWindow : Window
         _companion.OutputRequested += (_, open) => Dispatcher.Invoke(() => SetOutput(open));
         _companion.LayerVisibilityRequested += (_, t) => Dispatcher.Invoke(() =>
         {
-            if (t.Layer is 1 or 2) SetLayerVisible(t.Layer, t.Show);
+            var idx = t.Layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerVisible(idx, t.Show);
         });
         _companion.LayerToggleRequested += (_, layer) => Dispatcher.Invoke(() =>
         {
-            if (layer is 1 or 2) SetLayerVisible(layer, !_layers[layer].Visible);
+            var idx = layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerVisible(idx, !_layerVms[idx].State.Visible);
         });
         _companion.MasterMuteRequested += (_, muted) => Dispatcher.Invoke(() => SetMasterMute(muted));
         _companion.MasterMuteToggleRequested += (_, _) => Dispatcher.Invoke(() => SetMasterMute(!_masterMuted));
@@ -492,17 +836,31 @@ public partial class MainWindow : Window
         });
         _companion.LayerMuteRequested += (_, t) => Dispatcher.Invoke(() =>
         {
-            if (t.Layer is 1 or 2) SetLayerMute(t.Layer, t.Muted);
+            var idx = t.Layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerMute(idx, t.Muted);
         });
         _companion.LayerMuteToggleRequested += (_, layer) => Dispatcher.Invoke(() =>
         {
-            if (layer is 1 or 2) SetLayerMute(layer, !_layers[layer].Muted);
+            var idx = layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerMute(idx, !_layerVms[idx].State.Muted);
+        });
+        _companion.LayerBlendRequested += (_, t) => Dispatcher.Invoke(() =>
+        {
+            var idx = t.Layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerBlend(idx, t.Additive);
+        });
+        _companion.LayerBlendToggleRequested += (_, layer) => Dispatcher.Invoke(() =>
+        {
+            var idx = layer - 1;
+            if (idx >= 0 && idx < _layerVms.Count) SetLayerBlend(idx, !_layerVms[idx].State.BlendAdd);
         });
     }
 
     // ===== Projeto (guardar / abrir) =====
 
-    private void BtnSaveProject_Click(object sender, RoutedEventArgs e)
+    private void BtnSaveProject_Click(object sender, RoutedEventArgs e) => SaveProjectAs();
+
+    private bool SaveProjectAs()
     {
         var dlg = new SaveFileDialog
         {
@@ -511,15 +869,32 @@ public partial class MainWindow : Window
             FileName = "show.stageplayout.json",
             Title = "Guardar projeto"
         };
-        if (dlg.ShowDialog(this) == true)
+        if (dlg.ShowDialog(this) != true) return false;
+
+        try
         {
-            try { ProjectStore.Save(_playlist, dlg.FileName); }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.Message, "Erro ao guardar",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            SaveProjectTo(dlg.FileName);
+            _projectPath = dlg.FileName;
+            ClearDirty();
+            return true;
         }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Erro ao guardar",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+    }
+
+    /// <summary>Guarda playlist + presets de output + estado de todas as layers.</summary>
+    private void SaveProjectTo(string path)
+    {
+        var layers = _layerVms
+            .Select(vm => new ProjectStore.LayerStateDto(
+                vm.State.File ?? "", vm.State.X, vm.State.Y, vm.State.W, vm.State.H,
+                vm.State.Muted, vm.State.BlendAdd))
+            .ToList();
+        ProjectStore.Save(_playlist, path, layers);
     }
 
     private void BtnOpenProject_Click(object sender, RoutedEventArgs e)
@@ -533,28 +908,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                ProjectStore.Load(_playlist, dlg.FileName);
-
-                // ensure all cues have display IDs
-                foreach (var c in _playlist.Cues)
-                    if (c.DisplayId == 0) c.DisplayId = Cue.NextDisplayId();
-
-                // resolve jump target display IDs after loading
-                foreach (var c in _playlist.Cues)
-                    c.JumpTargetId = _playlist.Cues.FirstOrDefault(x => x.Id == c.NextCueId)?.DisplayId ?? 0;
-
-                // normaliza paths curtos 8.3 (projetos gravados com eles)
-                foreach (var c in _playlist.Cues.Where(c => !c.IsGroup))
-                {
-                    c.FilePath = PathHelper.ToLongPath(c.FilePath);
-                    c.Name = Path.GetFileName(c.FilePath);
-                }
-
-                _standbyCue = null;
-                PreloadNext();
-                QueueThumbnails(_playlist.Cues);
-                _cuesView?.Refresh();
-                UpdateStatus();
+                LoadProject(dlg.FileName);
             }
             catch (Exception ex)
             {
@@ -562,6 +916,67 @@ public partial class MainWindow : Window
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+    }
+
+    /// <summary>Carrega um projeto (playlist + presets de output + layers) e prepara o UI.</summary>
+    private void LoadProject(string path)
+    {
+        ProjectStore.Load(_playlist, path, ApplyLayerStates);
+
+        // ensure all cues have display IDs + hook de edições (estado sujo)
+        foreach (var c in _playlist.Cues)
+        {
+            if (c.DisplayId == 0) c.DisplayId = Cue.NextDisplayId();
+            HookCueEdits(c);
+        }
+
+        // resolve jump target display IDs after loading
+        foreach (var c in _playlist.Cues)
+            c.JumpTargetId = _playlist.Cues.FirstOrDefault(x => x.Id == c.NextCueId)?.DisplayId ?? 0;
+
+        // normaliza paths curtos 8.3 (projetos gravados com eles)
+        foreach (var c in _playlist.Cues.Where(c => !c.IsGroup))
+        {
+            c.FilePath = PathHelper.ToLongPath(c.FilePath);
+            c.Name = Path.GetFileName(c.FilePath);
+        }
+
+        _projectPath = path;
+        _standbyCue = null;
+        PreloadNext();
+        QueueThumbnails(_playlist.Cues);
+        _cuesView?.Refresh();
+        UpdateStatus();
+        ClearDirty(); // CollectionChanged/PropertyChanged durante a carga não contam
+    }
+
+    /// <summary>Restaura o estado das layers do projeto (nunca auto-mostra).</summary>
+    private void ApplyLayerStates(List<ProjectStore.LayerStateDto>? states)
+    {
+        if (states is null) return;
+
+        _layerVms.Clear();
+        var i = 0;
+        foreach (var d in states.Take(MaxLayers))
+        {
+            var vm = new LayerVm(new LayerState
+            {
+                X = d.X, Y = d.Y, W = d.W, H = d.H,
+                Muted = d.Muted, BlendAdd = d.BlendAdd,
+                Visible = false, // segurança: layers nunca entram sozinhas no ar
+            }, i++);
+            if (!string.IsNullOrWhiteSpace(d.File))
+                vm.SetFile(d.File);
+            _layerVms.Add(vm);
+        }
+
+        if (_layerVms.Count == 0)
+        {
+            _layerVms.Add(new LayerVm(new LayerState { X = 0.68, Y = 0.66, W = 0.28, H = 0.28 }, 0));
+        }
+        _selectedLayer = 0;
+        RefreshLayerSelection();
+        RefreshGeomEditor();
     }
 
     private bool IsParentExpanded(Cue cue)
@@ -607,6 +1022,7 @@ public partial class MainWindow : Window
         if (selected.Count == 0) return;
 
         var group = _playlist.GroupSelection($"Nova playlist ({selected.Count})", selected);
+        HookCueEdits(group);
         _cuesView?.Refresh();
         UpdateStatus();
 
@@ -678,6 +1094,7 @@ public partial class MainWindow : Window
             // expande short paths 8.3 (ex.: 16435_~1.MP4) para o nome longo real
             var longPath = PathHelper.ToLongPath(file);
             var cue = new Cue { Name = Path.GetFileName(longPath), FilePath = longPath };
+            HookCueEdits(cue);
             _playlist.Add(cue);
             added.Add(cue);
         }
@@ -748,56 +1165,65 @@ public partial class MainWindow : Window
 
     private void ExtractThumb(Cue cue, int maxW, int maxH)
     {
-        Task.Run(() =>
+        Task.Run(async () =>
         {
-            var dec = new FFDecoder();
+            // limitar decoders FFmpeg em paralelo (playlists grandes abriam dezenas de uma vez)
+            await ThumbSemaphore.WaitAsync();
             try
             {
-                // autoPlay false = PreRollFirstFrame decodes frame 0 synchronously
-                if (!dec.Open(cue.FilePath, autoPlay: false)) { VideoLog.Write($"ExtractThumb: Open FALHOU {cue.Name}"); dec.Dispose(); return; }
-                // after Open + PreRollFirstFrame, frame 0 should be decoded already
-                if (dec.FrameWidth == 0) { VideoLog.Write($"ExtractThumb: FrameWidth=0 {cue.Name}"); dec.Dispose(); return; }
-                int w, h, stride;
-                byte[] copy;
-                lock (dec.FrameLock)
+                var dec = new FFDecoder();
+                try
                 {
-                    w = dec.FrameWidth; h = dec.FrameHeight; stride = dec.FrameStride;
-                    var src = dec.FrameData;
-                    if (src is null || src.Length == 0) { VideoLog.Write($"ExtractThumb: FrameData vazio {cue.Name}"); dec.Dispose(); return; }
-                    copy = new byte[src.Length];
-                    Buffer.BlockCopy(src, 0, copy, 0, src.Length);
-                    VideoLog.Write($"ExtractThumb: copiado {w}x{h} stride={stride} len={src.Length} {cue.Name}");
+                    // autoPlay false = PreRollFirstFrame decodes frame 0 synchronously
+                    if (!dec.Open(cue.FilePath, autoPlay: false)) { VideoLog.Write($"ExtractThumb: Open FALHOU {cue.Name}"); dec.Dispose(); return; }
+                    // after Open + PreRollFirstFrame, frame 0 should be decoded already
+                    if (dec.FrameWidth == 0) { VideoLog.Write($"ExtractThumb: FrameWidth=0 {cue.Name}"); dec.Dispose(); return; }
+                    int w, h, stride;
+                    byte[] copy;
+                    lock (dec.FrameLock)
+                    {
+                        w = dec.FrameWidth; h = dec.FrameHeight; stride = dec.FrameStride;
+                        var src = dec.FrameData;
+                        if (src is null || src.Length == 0) { VideoLog.Write($"ExtractThumb: FrameData vazio {cue.Name}"); dec.Dispose(); return; }
+                        copy = new byte[src.Length];
+                        Buffer.BlockCopy(src, 0, copy, 0, src.Length);
+                        VideoLog.Write($"ExtractThumb: copiado {w}x{h} stride={stride} len={src.Length} {cue.Name}");
+                    }
+                    dec.Dispose();
+                    _ = Dispatcher.BeginInvoke(() =>
+                    {
+                        try
+                        {
+                            var full = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, copy, w * 4);
+                            full.Freeze();
+                            if (w > maxW || h > maxH)
+                            {
+                                var scale = Math.Min((double)maxW / w, (double)maxH / h);
+                                var scaled = new TransformedBitmap(full, new ScaleTransform(scale, scale));
+                                scaled.Freeze();
+                                cue.Thumbnail = scaled;
+                            }
+                            else
+                            {
+                                cue.Thumbnail = full;
+                            }
+                            VideoLog.Write($"ExtractThumb: OK {cue.Name} {w}x{h} -> {maxW}x{maxH}");
+                        }
+                        catch (Exception ex)
+                        {
+                            VideoLog.Write($"ExtractThumb: EXCEPTION {cue.Name}: {ex.Message}");
+                        }
+                    });
                 }
-                dec.Dispose();
-                Dispatcher.BeginInvoke(() =>
+                catch (Exception ex)
                 {
-                    try
-                    {
-                        var full = BitmapSource.Create(w, h, 96, 96, PixelFormats.Bgra32, null, copy, w * 4);
-                        full.Freeze();
-                        if (w > maxW || h > maxH)
-                        {
-                            var scale = Math.Min((double)maxW / w, (double)maxH / h);
-                            var scaled = new TransformedBitmap(full, new ScaleTransform(scale, scale));
-                            scaled.Freeze();
-                            cue.Thumbnail = scaled;
-                        }
-                        else
-                        {
-                            cue.Thumbnail = full;
-                        }
-                        VideoLog.Write($"ExtractThumb: OK {cue.Name} {w}x{h} -> {maxW}x{maxH}");
-                    }
-                    catch (Exception ex)
-                    {
-                        VideoLog.Write($"ExtractThumb: EXCEPTION {cue.Name}: {ex.Message}");
-                    }
-                });
+                    VideoLog.Write($"ExtractThumb: CATCH {cue.Name}: {ex.Message}");
+                    try { dec.Dispose(); } catch { }
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                VideoLog.Write($"ExtractThumb: CATCH {cue.Name}: {ex.Message}");
-                try { dec.Dispose(); } catch { }
+                ThumbSemaphore.Release();
             }
         });
     }
@@ -819,7 +1245,6 @@ public partial class MainWindow : Window
                 _playlist.Remove(cue);
 
             if (_standbyCue?.Id == cue.Id) _standbyCue = null;
-            _mediaPool.UpdateWindow(_playlist);
             _cuesView?.Refresh();
             PreloadNext();
             UpdateStatus();
@@ -910,7 +1335,6 @@ public partial class MainWindow : Window
                 _standbyCue = null;
                 PreloadNext(); // a ordem mudou: recarregar o standby
             }
-            _mediaPool.UpdateWindow(_playlist);
             ClearInsertionIndicator();
             e.Handled = true;
             return;
@@ -986,11 +1410,22 @@ public partial class MainWindow : Window
 
     private void Go()
     {
+        var atLast = _playlist.Current is not null &&
+                     _playlist.CurrentIndex >= _playlist.Cues.Count - 1;
         if (_playlist.Go() is { } cue)
         {
-            _mediaPool.UpdateWindow(_playlist);
+            if (atLast) WarnLastCue();
             TransitionTo(cue);
         }
+    }
+
+    /// <summary>Aviso visual: GO no último cue repete o cue atual.</summary>
+    private void WarnLastCue()
+    {
+        TxtStatus.Text = "AVISO: GO no último cue — repetir o cue atual";
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        t.Tick += (_, _) => { UpdateStatus(); t.Stop(); };
+        t.Start();
     }
 
     private void TogglePause()
@@ -1012,10 +1447,20 @@ public partial class MainWindow : Window
 
     private void StopPlayback()
     {
-        if (_liveSlot < 0 || _output?.Compositor is not { } comp) return;
+        if (_liveSlot < 0) return;
+
+        var comp = _output?.Compositor;
+        if (comp is null)
+        {
+            // output fechado (sem compositor): parar tudo já — o som nunca deve
+            // continuar a tocar sem vídeo
+            StopAllPlayback();
+            return;
+        }
 
         // fade to black; o decoder é libertado no fim do fade (OnFadeCompleted)
         var fadeOut = _playlist.Current?.FadeOutSeconds ?? 0.5;
+        _pendingDip = null;
         _closingSlots.Add(_liveSlot);
         comp.SetOpacity(_liveSlot, 0, fadeOut);
         _liveSlot = -1;
@@ -1034,23 +1479,137 @@ public partial class MainWindow : Window
         UpdateBigRemaining(null);
     }
 
+    /// <summary>
+    /// Para e liberta TODOS os decoders (programa, standby e layers) sem fades.
+    /// Usado quando o output fecha (o compositor é destruído) e em estados sem output.
+    /// </summary>
+    private void StopAllPlayback()
+    {
+        _compWired = false;
+        _closingSlots.Clear();
+        _closingLayerSlots.Clear();
+        _pendingDip = null;
+
+        for (var i = 0; i < _slotDec.Length; i++)
+        {
+            _slotDec[i]?.Dispose();
+            _slotDec[i] = null;
+        }
+        _liveSlot = -1;
+
+        _standbyDec?.Dispose();
+        _standbyDec = null;
+        _standbyCue = null;
+
+        foreach (var vm in _layerVms)
+        {
+            vm.State.Decoder?.Dispose();
+            vm.State.Decoder = null;
+            vm.State.Visible = false;
+            vm.Refresh();
+        }
+
+        _playlist.Deselect();
+        foreach (var c in _playlist.Cues)
+        {
+            c.IsLive = false;
+            c.Progress = 0;
+            if (!c.IsGroup) c.TimeText = Cue.Fmt(c.Duration);
+        }
+
+        BtnPause.IsEnabled = false;
+        BtnStop.IsEnabled = false;
+        BtnPause.Content = "PAUSE";
+        TxtTime.Text = "--:--:-- / --:--:--";
+        TxtNowPlaying.Text = "No cue loaded";
+        TxtNowPlaying.Foreground = FindResource("TextMutedBrush") as Brush ?? Brushes.Gray;
+        UpdateBigRemaining(null);
+    }
+
     private void BtnPause_Click(object sender, RoutedEventArgs e) => TogglePause();
     private void BtnStop_Click(object sender, RoutedEventArgs e) => StopPlayback();
 
-    // ===== Camadas flutuantes L1/L2 =====
+    // ===== Layers dinâmicas (L1..L4) =====
 
-    private int SelectedLayer => SelL2.IsChecked == true ? 2 : 1;
+    private LayerState? SelectedState =>
+        _selectedLayer >= 0 && _selectedLayer < _layerVms.Count
+            ? _layerVms[_selectedLayer].State
+            : null;
 
-    private void SelLayer_Click(object sender, RoutedEventArgs e)
+    private void RefreshLayerSelection()
     {
-        SelL1.IsChecked = ReferenceEquals(sender, SelL1);
-        SelL2.IsChecked = ReferenceEquals(sender, SelL2);
+        for (var i = 0; i < _layerVms.Count; i++)
+            _layerVms[i].IsSelected = i == _selectedLayer;
+        if (BtnAddLayer is not null)
+            BtnAddLayer.IsEnabled = _layerVms.Count < MaxLayers;
+    }
+
+    private void LayerSelect_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not LayerVm vm) return;
+        _selectedLayer = vm.Index;
+        RefreshLayerSelection();
         RefreshGeomEditor();
+    }
+
+    private void AddLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_layerVms.Count >= MaxLayers) return;
+        var vm = new LayerVm(
+            new LayerState { X = 0.68, Y = 0.66, W = 0.28, H = 0.28 },
+            _layerVms.Count);
+        _layerVms.Add(vm);
+        _selectedLayer = vm.Index;
+        RefreshLayerSelection();
+        RefreshGeomEditor();
+        MarkDirty();
+    }
+
+    private void RemoveLayer_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not LayerVm vm) return;
+        if (_layerVms.Count <= 1) return;
+
+        var idx = _layerVms.IndexOf(vm);
+        SetLayerVisible(idx, false); // tira do ar (fade) se visível
+
+        var comp = _output?.Compositor;
+        for (var i = idx; i < _layerVms.Count; i++)
+            comp?.SetSource(2 + i, null);
+
+        _layerVms.Remove(vm);
+        _selectedLayer = Math.Min(_selectedLayer, _layerVms.Count - 1);
+        RefreshLayerSelection();
+        ReattachLayers();
+        RefreshGeomEditor();
+        MarkDirty();
+    }
+
+    /// <summary>Re-encadeia todas as layers visíveis nos slots (após add/remove/reabertura).</summary>
+    private void ReattachLayers()
+    {
+        var comp = _output?.Compositor;
+        if (comp is null) return;
+        for (var i = 0; i < _layerVms.Count; i++)
+        {
+            var s = _layerVms[i].State;
+            if (s.Visible && s.Decoder is not null)
+            {
+                comp.SetSource(2 + i, s.Decoder);
+                comp.SetGeometry(2 + i, (float)s.X, (float)s.Y, (float)s.W, (float)s.H);
+                comp.SetBlendMode(2 + i, s.BlendAdd);
+                comp.SetOpacity(2 + i, 1, 0);
+            }
+            else
+            {
+                comp.SetSource(2 + i, null);
+            }
+        }
     }
 
     private void RefreshGeomEditor()
     {
-        var s = _layers[SelectedLayer];
+        var s = SelectedState;
         if (s is null) return;
         var cw = GeomCanvas.ActualWidth;
         var ch = GeomCanvas.ActualHeight;
@@ -1075,7 +1634,7 @@ public partial class MainWindow : Window
         top = Math.Clamp(top + e.VerticalChange, 0, ch - GeomRect.Height);
         Canvas.SetLeft(GeomRect, left);
         Canvas.SetTop(GeomRect, top);
-        PushGeom(SelectedLayer);
+        PushGeom();
     }
 
     private void GeomResize_DragDelta(object sender, DragDeltaEventArgs e)
@@ -1089,49 +1648,48 @@ public partial class MainWindow : Window
 
         GeomRect.Width = Math.Clamp(GeomRect.Width + e.HorizontalChange, cw * 0.05, cw - left);
         GeomRect.Height = Math.Clamp(GeomRect.Height + e.VerticalChange, ch * 0.05, ch - top);
-        PushGeom(SelectedLayer);
+        PushGeom();
     }
 
-    private void PushGeom(int layer)
+    private void PushGeom()
     {
         var cw = GeomCanvas.ActualWidth;
         var ch = GeomCanvas.ActualHeight;
         if (cw < 10 || ch < 10) return;
 
-        var s = _layers[layer];
+        var s = SelectedState;
+        if (s is null) return;
         s.X = Canvas.GetLeft(GeomRect) / cw;
         s.Y = Canvas.GetTop(GeomRect) / ch;
         s.W = GeomRect.Width / cw;
         s.H = GeomRect.Height / ch;
-        _output?.Compositor?.SetGeometry(layer + 1, (float)s.X, (float)s.Y, (float)s.W, (float)s.H);
+        _output?.Compositor?.SetGeometry(2 + _selectedLayer, (float)s.X, (float)s.Y, (float)s.W, (float)s.H);
     }
 
     private void LayerOpen_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not string tag ||
-            !int.TryParse(tag, out var layer) || layer is < 1 or > 2) return;
+        if ((sender as FrameworkElement)?.Tag is not LayerVm vm) return;
 
         var dlg = new OpenFileDialog
         {
             Filter = "Vídeo|*.mp4;*.mov;*.mkv;*.webm|Todos os ficheiros|*.*",
-            Title = $"Escolher vídeo para a Layer {layer}"
+            Title = $"Escolher vídeo para a {vm.Label}"
         };
         if (dlg.ShowDialog(this) != true) return;
 
-        var s = _layers[layer];
-        s.File = PathHelper.ToLongPath(dlg.FileName);
-        (layer == 1 ? TxtL1Name : TxtL2Name).Text = Path.GetFileName(s.File);
-        (layer == 1 ? BtnL1Toggle : BtnL2Toggle).IsEnabled = true;
+        vm.SetFile(PathHelper.ToLongPath(dlg.FileName));
+        MarkDirty();
 
-        if (s.Visible) // trocar em direto: abrir novo decoder e fazer swap no slot
-            OpenLayerDecoder(layer, s.File);
+        if (vm.State.Visible) // trocar em direto: abrir novo decoder e fazer swap no slot
+            OpenLayerDecoder(vm.Index, vm.State.File!);
     }
 
     /// <summary>Abre o ficheiro da layer em background e entra no slot com fade-in.</summary>
-    private void OpenLayerDecoder(int layer, string file)
+    private void OpenLayerDecoder(int index, string file)
     {
-        var s = _layers[layer];
-        var slot = layer + 1;
+        var vm = _layerVms[index];
+        var s = vm.State;
+        var slot = 2 + index;
 
         Task.Run(() =>
         {
@@ -1140,7 +1698,7 @@ public partial class MainWindow : Window
             {
                 dec.Dispose();
                 Dispatcher.BeginInvoke(() =>
-                    TxtStatus.Text = $"ERRO na Layer {layer}: {file}");
+                    TxtStatus.Text = $"ERRO na {vm.Label}: {file}");
                 return;
             }
             dec.Loop = true;
@@ -1152,11 +1710,17 @@ public partial class MainWindow : Window
                     dec.Dispose();
                     return;
                 }
+
+                // Race hide→show: cancelar o fecho pendente ANTES do SetOpacity(0,0)
+                // (o fade imediato dispara FadeCompleted e mataria o decoder novo)
+                _closingLayerSlots.Remove(slot);
+
                 s.Decoder?.Dispose();
                 s.Decoder = dec;
 
                 comp.SetSource(slot, dec);
                 comp.SetGeometry(slot, (float)s.X, (float)s.Y, (float)s.W, (float)s.H);
+                comp.SetBlendMode(slot, s.BlendAdd);
                 comp.SetOpacity(slot, 0, 0);
                 ApplyVolumes();                     // respeita mute da layer
                 dec.Play();
@@ -1167,31 +1731,29 @@ public partial class MainWindow : Window
 
     private void LayerToggle_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is string tag &&
-            int.TryParse(tag, out var layer) && layer is >= 1 and <= 2)
-            SetLayerVisible(layer, !_layers[layer].Visible);
+        if ((sender as FrameworkElement)?.Tag is LayerVm vm)
+            SetLayerVisible(vm.Index, !vm.State.Visible);
     }
 
-    private void SetLayerVisible(int layer, bool visible)
+    private void SetLayerVisible(int index, bool visible)
     {
-        var s = _layers[layer];
-        if (visible && s.File is null) return;
+        var vm = _layerVms[index];
+        var s = vm.State;
+        if (visible && string.IsNullOrEmpty(s.File)) return;
 
         SetOutput(true);
         if (_output is null) return;
 
         s.Visible = visible;
-        var btn = layer == 1 ? BtnL1Toggle : BtnL2Toggle;
-        var slot = layer + 1;
+        vm.Refresh();
+        var slot = 2 + index;
 
         if (visible)
         {
-            btn.Content = "OCULTAR";
-            OpenLayerDecoder(layer, s.File!);
+            OpenLayerDecoder(index, s.File!);
         }
         else
         {
-            btn.Content = "MOSTRAR";
             if (_output.Compositor is { } comp)
             {
                 // fade-out; o decoder é libertado quando o fade terminar
@@ -1224,8 +1786,8 @@ public partial class MainWindow : Window
         var progVol = _masterMuted ? 0.0 : master;
         comp.SetBaseVolume(0, progVol);
         comp.SetBaseVolume(1, progVol);
-        for (var i = 1; i <= 2; i++)
-            comp.SetBaseVolume(i + 1, _layers[i].Muted ? 0.0 : master);
+        for (var i = 0; i < _layerVms.Count; i++)
+            comp.SetBaseVolume(2 + i, _layerVms[i].State.Muted ? 0.0 : master);
 
         if (_standbyDec is not null) _standbyDec.Volume = progVol;
     }
@@ -1242,17 +1804,31 @@ public partial class MainWindow : Window
 
     private void LayerMute_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.Tag is not string tag ||
-            !int.TryParse(tag, out var layer) || layer is < 1 or > 2) return;
-
-        SetLayerMute(layer, (sender as ToggleButton)?.IsChecked != true);
+        if ((sender as FrameworkElement)?.Tag is LayerVm vm)
+            SetLayerMute(vm.Index, vm.SoundOn); // SoundOn = estado antes do clique
     }
 
-    private void SetLayerMute(int layer, bool muted)
+    private void SetLayerMute(int index, bool muted)
     {
-        _layers[layer].Muted = muted;
-        (layer == 1 ? BtnL1Mute : BtnL2Mute).IsChecked = !muted;
+        var vm = _layerVms[index];
+        vm.State.Muted = muted;
+        vm.Refresh();
         ApplyVolumes();
+    }
+
+    private void LayerBlend_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is LayerVm vm)
+            SetLayerBlend(vm.Index, !vm.State.BlendAdd);
+    }
+
+    /// <summary>Blend mode da layer: alpha normal ou aditivo (Add).</summary>
+    private void SetLayerBlend(int index, bool additive)
+    {
+        var vm = _layerVms[index];
+        vm.State.BlendAdd = additive;
+        vm.Refresh();
+        _output?.Compositor?.SetBlendMode(2 + index, additive);
     }
 
     private void CueList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -1278,7 +1854,6 @@ public partial class MainWindow : Window
         var idx = _playlist.Cues.IndexOf(target);
         if (idx >= 0 && _playlist.Select(idx) is { } cue)
         {
-            _mediaPool.UpdateWindow(_playlist);
             TransitionTo(cue);
         }
     }
@@ -1312,7 +1887,7 @@ public partial class MainWindow : Window
     {
         if (!open)
         {
-            _output?.Close();
+            _output?.Close(); // Closed handler para tudo (StopAllPlayback) e restaura o refresh
             return;
         }
         if (_output is not null) return;
@@ -1321,17 +1896,43 @@ public partial class MainWindow : Window
         _output.Closed += (_, _) =>
         {
             _output = null;
+            _overlay?.Close();
+            _overlay = null;
             BtnOutput.Content = " External Display ON ";
+            StopAllPlayback();
+            RestoreOutputRefresh();
+            _outputInfo = "—";
+            UpdateStatus();
         };
 
         var screens = System.Windows.Forms.Screen.AllScreens;
-        var target = screens.Length > 1 ? screens[1] : screens[0];
+        var target = _playlist.OutputDevice is { Length: > 0 } dev
+            ? screens.FirstOrDefault(s => string.Equals(s.DeviceName, dev, StringComparison.OrdinalIgnoreCase))
+            : null;
+        target ??= screens.Length > 1 ? screens[1] : screens[0];
+
+        // preset de refresh por projeto: aplica temporariamente o modo de saída
+        if (_playlist.OutputRefresh > 0)
+        {
+            _restoreRefreshDevice = target.DeviceName;
+            _restoreRefreshFreq = DisplayInfo.TrySetRefreshRate(target.DeviceName, _playlist.OutputRefresh, out var err);
+            Video.VideoLog.Write($"Output preset: {target.DeviceName} @{_playlist.OutputRefresh}Hz " +
+                                 $"-> {(err is null ? "OK" : err)} (orig {_restoreRefreshFreq}Hz)");
+        }
+        else
+        {
+            RestoreOutputRefresh();
+        }
+
         _output.Left = target.Bounds.Left;
         _output.Top = target.Bounds.Top;
         _output.Width = target.Bounds.Width;
         _output.Height = target.Bounds.Height;
         _output.Show();
         _output.WindowState = WindowState.Maximized;
+
+        // overlay de confiança (cue + tempo restante) por cima do output
+        EnsureOverlay();
 
         // deteção do modo da saída (interlaçado/progressivo) para a status bar
         _outputInfo = DisplayInfo.Describe(target.DeviceName);
@@ -1356,16 +1957,7 @@ public partial class MainWindow : Window
                     comp.SetOpacity(slot, 1, 0);
                 }
 
-            for (var i = 1; i <= 2; i++)
-            {
-                var s = _layers[i];
-                if (s is { Visible: true, Decoder: not null })
-                {
-                    comp.SetSource(i + 1, s.Decoder);
-                    comp.SetGeometry(i + 1, (float)s.X, (float)s.Y, (float)s.W, (float)s.H);
-                    comp.SetOpacity(i + 1, 1, 0);
-                }
-            }
+            ReattachLayers();
 
             ApplyVolumes(); // respeita mutes
         }));
@@ -1373,13 +1965,110 @@ public partial class MainWindow : Window
         BtnOutput.Content = " External Display OFF ";
     }
 
+    private void RestoreOutputRefresh()
+    {
+        if (_restoreRefreshDevice.Length == 0 || _restoreRefreshFreq <= 0) return;
+        var err = DisplayInfo.RestoreRefreshRate(_restoreRefreshDevice, _restoreRefreshFreq);
+        Video.VideoLog.Write($"Output preset: restaurado {_restoreRefreshDevice} @{_restoreRefreshFreq}Hz" +
+                             $"{(err is null ? "" : $" (erro: {err})")}");
+        _restoreRefreshDevice = "";
+        _restoreRefreshFreq = 0;
+    }
+
+    /// <summary>Menu do botão de output: escolher ecrã de saída + refresh (preset por projeto).</summary>
+    private void BtnOutput_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        var menu = new ContextMenu { PlacementTarget = BtnOutput, StaysOpen = true };
+
+        foreach (var screen in System.Windows.Forms.Screen.AllScreens)
+        {
+            var name = screen.DeviceName.Replace("\\\\.\\", "");
+            var item = new MenuItem
+            {
+                Header = $"Display: {name} ({screen.Bounds.Width}×{screen.Bounds.Height})",
+                IsCheckable = true,
+                IsChecked = string.Equals(_playlist.OutputDevice, screen.DeviceName, StringComparison.OrdinalIgnoreCase),
+            };
+            item.Click += (_, _) => { _playlist.OutputDevice = screen.DeviceName; MarkDirty(); };
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        foreach (var hz in new[] { 0, 50, 60, 75 })
+        {
+            var item = new MenuItem
+            {
+                Header = hz == 0 ? "Refresh: auto (sistema)" : $"Refresh: {hz} Hz",
+                IsCheckable = true,
+                IsChecked = _playlist.OutputRefresh == hz,
+            };
+            item.Click += (_, _) => { _playlist.OutputRefresh = hz; MarkDirty(); UpdateStatus(); };
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Overlay de confiança: cue atual + tempo restante no ecrã de palco.</summary>
+    private void EnsureOverlay()
+    {
+        if (_overlay is not null) return;
+        _overlay = new OverlayWindow();
+        if (BtnOverlay.IsChecked != true)
+            _overlay.Visibility = Visibility.Collapsed;
+        _overlay.Show();
+        UpdateOverlay("—");
+    }
+
+    private void UpdateOverlay(string text)
+    {
+        if (_overlay is null || _output is null) return;
+        _overlay.SetText(text);
+        if (_overlay.Left != _output.Left || _overlay.Top != _output.Top ||
+            _overlay.Width != _output.Width || _overlay.Height != _output.Height)
+        {
+            _overlay.Left = _output.Left;
+            _overlay.Top = _output.Top;
+            _overlay.Width = _output.Width;
+            _overlay.Height = _output.Height;
+        }
+    }
+
+    private void Overlay_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_overlay is not null)
+            _overlay.Visibility = BtnOverlay.IsChecked == true
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+    }
+
+    /// <summary>Preview PROGRAM (30 fps): lê o frame composto do GPU e mostra no WriteableBitmap.</summary>
+    private void PreviewTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_output?.Compositor is not { } comp) return;
+        var w = D3DCompositor.PreviewWidth;
+        var h = D3DCompositor.PreviewHeight;
+
+        if (_previewBuf.Length != w * h * 4)
+            _previewBuf = new byte[w * h * 4];
+        if (!comp.TryCopyPreviewInto(_previewBuf, out var seq)) return;
+
+        if (_previewBmp is null || _previewBmp.PixelWidth != w || _previewBmp.PixelHeight != h)
+            _previewBmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+        _previewBmp.WritePixels(new Int32Rect(0, 0, w, h), _previewBuf, w * 4, 0);
+        if (!ReferenceEquals(PreviewImage.Source, _previewBmp))
+            PreviewImage.Source = _previewBmp;
+    }
+
     // ===== Estado / atalhos =====
 
     private void UpdateStatus()
     {
         var preloaded = _standbyCue is not null ? $"preload: {_standbyCue.Name}" : "preload: —";
+        var preset = _playlist.OutputRefresh > 0 ? $"  •  preset: {_playlist.OutputRefresh}Hz" : "";
         TxtStatus.Text = $"READY  •  {_playlist.Cues.Count} cues  •  {preloaded}  •  " +
-                         $"Output: {_outputInfo}  •  OSC porta {_companion.Port}";
+                         $"Output: {_outputInfo}{preset}  •  OSC porta {_companion.Port}";
     }
 
     private void Previous()
@@ -1392,7 +2081,11 @@ public partial class MainWindow : Window
     {
         var handled = true;
 
-        if (e.Key == _keyGo || e.Key == _keyNext) Go();
+        if (e.Key == Key.L && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            BtnShowMode.IsChecked = !_showMode; // toggled → SetShowMode
+        }
+        else if (e.Key == _keyGo || e.Key == _keyNext) Go();
         else if (e.Key == _keyPrev) Previous();
         else if (e.Key == _keyStop) StopPlayback();
         else if (e.Key == _keyPause) TogglePause();
@@ -1402,14 +2095,38 @@ public partial class MainWindow : Window
         base.OnPreviewKeyDown(e);
     }
 
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (_projectDirty && _playlist.Cues.Count > 0)
+        {
+            var res = MessageBox.Show(this,
+                "O projeto tem alterações por guardar.\n\nGuardar antes de fechar?",
+                "Smart Play Cue", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+            if (res == MessageBoxResult.Cancel) { e.Cancel = true; return; }
+            if (res == MessageBoxResult.Yes && !SaveProjectAs()) { e.Cancel = true; return; }
+        }
+        base.OnClosing(e);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
+        // lembrar janela + último projeto
+        var st = AppState.Load();
+        st.Left = Left;
+        st.Top = Top;
+        st.Width = ActualWidth;
+        st.Height = ActualHeight;
+        st.Maximized = WindowState == WindowState.Maximized;
+        if (_projectPath.Length > 0)
+            st.LastProjectPath = _projectPath;
+        st.Save();
+
         _uiTimer.Stop();
+        _previewTimer.Stop();
+        _backupTimer.Stop();
+        RestoreOutputRefresh();
+        StopAllPlayback();
         _companion.Dispose();
-        foreach (var dec in _slotDec) dec?.Dispose();
-        _standbyDec?.Dispose();
-        _layers[1]?.Decoder?.Dispose();
-        _layers[2]?.Decoder?.Dispose();
         _output?.Close();
         base.OnClosed(e);
     }

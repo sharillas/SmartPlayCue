@@ -20,7 +20,13 @@ public sealed unsafe class D3DCompositor : IDisposable
     public const int SlotProg2 = 1;
     public const int SlotLayer1 = 2;
     public const int SlotLayer2 = 3;
-    public const int SlotCount = 4;
+    public const int SlotLayer3 = 4;
+    public const int SlotLayer4 = 5;
+    public const int SlotCount = 6;
+
+    /// <summary>Resolução do preview PROGRAM lido pela janela de controlo (16:9).</summary>
+    public const int PreviewWidth = 480;
+    public const int PreviewHeight = 270;
 
     private readonly IntPtr _hwnd;
     private readonly object _apiLock = new();
@@ -34,16 +40,36 @@ public sealed unsafe class D3DCompositor : IDisposable
     private ID3D11Buffer? _cb;
     private ID3D11SamplerState? _sampler;
     private ID3D11BlendState? _blend;
+    private ID3D11BlendState? _blendAdd;
     private int _width, _height;
     public int OutputWidth => _width;
     public int OutputHeight => _height;
 
-    private readonly Slot[] _slots = { new(), new(), new(), new() };
-    private int[] _drawOrder = { 0, 1, 2, 3 }; // layers (2,3) sempre por cima
+    // Preview PROGRAM: render target fora do ecrã + staging para leitura CPU.
+    // O render loop faz copy+map (mesmo thread D3D11) e publica bytes num buffer
+    // partilhado; a UI lê com TryCopyPreviewInto (sem chamadas D3D fora do loop).
+    private ID3D11Texture2D? _previewTex;
+    private ID3D11RenderTargetView? _previewRtv;
+    private ID3D11Texture2D? _previewStaging;
+    private readonly object _previewLock = new();
+    private byte[] _previewBuffer = new byte[PreviewWidth * PreviewHeight * 4];
+    private long _previewSeq;
+    private long _previewReadSeq;
+    private int _frameCounter;
+
+    private readonly Slot[] _slots = { new(), new(), new(), new(), new(), new() };
+    private int[] _drawOrder = { 0, 1, 2, 3, 4, 5 }; // layers (2..5) sempre por cima
 
     private Thread? _thread;
     private volatile bool _quit;
     private readonly Stopwatch _frameClock = new();
+
+    // Diagnóstico de vsync: contagem de frames perdidos (missed presents)
+    private long _dropCount;
+    private double _refIntervalMs = 16.7; // média móvel do intervalo saudável
+
+    /// <summary>Frames de vsync perdidos desde o arranque do compositor.</summary>
+    public long DropCount => Interlocked.Read(ref _dropCount);
 
     public event Action<int>? FadeCompleted;
 
@@ -52,11 +78,13 @@ public sealed unsafe class D3DCompositor : IDisposable
         public FFDecoder? Source;
         public double Opacity, Target, Rate; // Rate: unidades por segundo
         public double BaseVolume = 1.0;      // volume master do slot
+        public double VolumeScale = 1.0;     // escala por cue (0..1)
         public double LastAppliedVolume = -1;
         public float X, Y = 0, W = 1, H = 1;
         public float Z;
         public float Rotation; // radians
         public long Gen;
+        public bool BlendAdd;             // true = blend aditivo (Add), false = alpha normal
         public ID3D11Texture2D? Tex;
         public ID3D11ShaderResourceView? Srv;
         public int TexW, TexH;
@@ -97,10 +125,16 @@ public sealed unsafe class D3DCompositor : IDisposable
         }
     }
 
-    /// <summary>Volume base do slot — o volume efetivo = BaseVolume × opacidade (audio fade = video fade).</summary>
+    /// <summary>Volume base do slot — o volume efetivo = BaseVolume × VolumeScale × opacidade.</summary>
     public void SetBaseVolume(int slot, double vol)
     {
         lock (_apiLock) _slots[slot].BaseVolume = vol;
+    }
+
+    /// <summary>Escala de volume por cue (0..1) — multiplica o volume efetivo do slot.</summary>
+    public void SetVolumeScale(int slot, double scale)
+    {
+        lock (_apiLock) _slots[slot].VolumeScale = scale;
     }
 
     public void SetGeometry(int slot, float x, float y, float w, float h)
@@ -117,6 +151,12 @@ public sealed unsafe class D3DCompositor : IDisposable
         lock (_apiLock) _slots[slot].Rotation = radians;
     }
 
+    /// <summary>Blend mode do slot: false = alpha normal, true = aditivo (Add).</summary>
+    public void SetBlendMode(int slot, bool additive)
+    {
+        lock (_apiLock) _slots[slot].BlendAdd = additive;
+    }
+
     /// <summary>Z-order dos slots de programa (layers têm prioridade fixa no topo).</summary>
     public void SetZ(int slot, float z)
     {
@@ -124,7 +164,7 @@ public sealed unsafe class D3DCompositor : IDisposable
         {
             _slots[slot].Z = z;
             var progFirst = _slots[1].Z < _slots[0].Z ? 1 : 0;
-            _drawOrder = new[] { progFirst, 1 - progFirst, 2, 3 };
+            _drawOrder = new[] { progFirst, 1 - progFirst, 2, 3, 4, 5 };
         }
     }
 
@@ -162,6 +202,37 @@ public sealed unsafe class D3DCompositor : IDisposable
 
         CreateRtv();
         InitPipeline();
+        InitPreview();
+    }
+
+    private void InitPreview()
+    {
+        var device = _device!;
+        _previewTex = device.CreateTexture2D(new Texture2DDescription
+        {
+            Width = PreviewWidth,
+            Height = PreviewHeight,
+            Format = Format.B8G8R8A8_UNorm,
+            MipLevels = 1,
+            ArraySize = 1,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Default,
+            BindFlags = BindFlags.RenderTarget,
+        });
+        _previewRtv = device.CreateRenderTargetView(_previewTex);
+
+        _previewStaging = device.CreateTexture2D(new Texture2DDescription
+        {
+            Width = PreviewWidth,
+            Height = PreviewHeight,
+            Format = Format.B8G8R8A8_UNorm,
+            MipLevels = 1,
+            ArraySize = 1,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Staging,
+            BindFlags = BindFlags.None,
+            CPUAccessFlags = CpuAccessFlags.Read,
+        });
     }
 
     private void CreateRtv()
@@ -219,6 +290,18 @@ float4 main(VSOut i) : SV_TARGET
             Filter.MinMagMipLinear, TextureAddressMode.Clamp));
 
         _blend = _device.CreateBlendState(BlendDescription.NonPremultiplied);
+        var addDesc = new BlendDescription();
+        addDesc.RenderTarget[0] = new RenderTargetBlendDescription
+        {
+            SourceBlend = Blend.One,
+            DestinationBlend = Blend.One,
+            SourceBlendAlpha = Blend.One,
+            DestinationBlendAlpha = Blend.One,
+            BlendOperation = BlendOperation.Add,
+            BlendOperationAlpha = BlendOperation.Add,
+            RenderTargetWriteMask = ColorWriteEnable.All,
+        };
+        _blendAdd = _device.CreateBlendState(addDesc);
     }
 
     public void Start()
@@ -243,6 +326,16 @@ float4 main(VSOut i) : SV_TARGET
                 var dt = _frameClock.Elapsed.TotalSeconds;
                 _frameClock.Restart();
 
+                // vsync health: intervalo >> média = frames perdidos (UI/OSC leem DropCount)
+                var dtMs = dt * 1000.0;
+                if (dtMs > _refIntervalMs * 1.8)
+                {
+                    var missed = (int)(dtMs / _refIntervalMs) - 1;
+                    if (missed > 0)
+                        Interlocked.Add(ref _dropCount, missed);
+                }
+                _refIntervalMs = _refIntervalMs * 0.95 + Math.Min(dtMs, _refIntervalMs * 2.0) * 0.05;
+
                 if (++resizeGuard >= 30)
                 {
                     resizeGuard = 0;
@@ -250,6 +343,8 @@ float4 main(VSOut i) : SV_TARGET
                 }
 
                 Render((float)dt);
+                if ((_frameCounter++ & 1) == 0)
+                    CapturePreview();
                 _swap!.Present(1, PresentFlags.None); // vsync
                 errorCount = 0;
             }
@@ -257,7 +352,14 @@ float4 main(VSOut i) : SV_TARGET
             {
                 if (++errorCount <= 5)
                     VideoLog.Write($"Compositor render ERRO: {ex.Message}");
-                Thread.Sleep(50); // nunca matar o render loop
+
+                // TDR / device lost: tenta recriar o device D3D11 e continuar
+                if (errorCount >= 3 && IsDeviceRemoved() && RecoverDevice())
+                {
+                    VideoLog.Write("Compositor: device recuperado (TDR)");
+                    errorCount = 0;
+                }
+                Thread.Sleep(errorCount >= 3 ? 250 : 50); // nunca matar o render loop
             }
         }
         VideoLog.Write("Compositor: render loop fim");
@@ -276,11 +378,71 @@ float4 main(VSOut i) : SV_TARGET
         CreateRtv();
     }
 
+    private bool IsDeviceRemoved()
+    {
+        try
+        {
+            // S_OK = 0; qualquer outro valor = device perdido (TDR / removed)
+            return _device is not null && (int)_device.DeviceRemovedReason != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// TDR / device lost: destrói os recursos do device antigo e recria tudo.
+    /// As texturas dos slots voltam a ser criadas (lazy) no device novo.
+    /// </summary>
+    private bool RecoverDevice()
+    {
+        try
+        {
+            VideoLog.Write("Compositor: device lost (TDR) — a recriar...");
+
+            foreach (var s in _slots)
+            {
+                s.Srv?.Dispose(); s.Tex?.Dispose();
+                s.Srv = null; s.Tex = null;
+                s.Gen = -1; // forçar re-upload no device novo
+            }
+            _rtv?.Dispose(); _rtv = null;
+            _previewStaging?.Dispose(); _previewStaging = null;
+            _previewRtv?.Dispose(); _previewRtv = null;
+            _previewTex?.Dispose(); _previewTex = null;
+            _swap?.Dispose(); _swap = null;
+            _cb?.Dispose(); _cb = null;
+            _sampler?.Dispose(); _sampler = null;
+            _blend?.Dispose(); _blend = null;
+            _blendAdd?.Dispose(); _blendAdd = null;
+            _vs?.Dispose(); _vs = null;
+            _ps?.Dispose(); _ps = null;
+            _ctx?.Dispose(); _ctx = null;
+            _device?.Dispose(); _device = null;
+
+            InitDevice();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            VideoLog.Write($"Compositor: recuperação FALHOU: {ex.Message}");
+            return false;
+        }
+    }
+
     private void Render(float dt)
     {
-        _ctx!.OMSetRenderTargets(_rtv!);
-        _ctx.RSSetViewport(0, 0, _width, _height);
-        _ctx.ClearRenderTargetView(_rtv!, new Color4(0f, 0f, 0f, 1f));
+        if (_rtv is null) return;
+        DrawScene(_rtv, _width, _height, dt, animate: true);
+    }
+
+    /// <summary>Desenha a cena completa (programa + layers) no target dado.</summary>
+    private void DrawScene(ID3D11RenderTargetView rtv, int w, int h, float dt, bool animate)
+    {
+        _ctx!.OMSetRenderTargets(rtv);
+        _ctx.RSSetViewport(0, 0, w, h);
+        _ctx.ClearRenderTargetView(rtv, new Color4(0f, 0f, 0f, 1f));
 
         _ctx.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
         _ctx.VSSetShader(_vs!);
@@ -294,10 +456,69 @@ float4 main(VSOut i) : SV_TARGET
         lock (_apiLock) order = _drawOrder;
 
         foreach (var i in order)
-            DrawSlot(i, dt);
+            DrawSlot(i, dt, animate);
     }
 
-    private void DrawSlot(int index, float dt)
+    /// <summary>Copia o preview para staging e publica o frame (chamado pelo render loop).</summary>
+    private void CapturePreview()
+    {
+        if (_previewRtv is null || _previewTex is null || _previewStaging is null) return;
+
+        // 2.º desenho no target de preview (animate=false: não avança fades 2× por frame)
+        DrawScene(_previewRtv, PreviewWidth, PreviewHeight, 0, animate: false);
+
+        _ctx!.CopyResource(_previewStaging, _previewTex);
+        var box = _ctx.Map(_previewStaging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+        try
+        {
+            var rowPitch = (int)box.RowPitch;
+            var src = box.DataPointer;
+            var rowBytes = PreviewWidth * 4;
+            var size = PreviewHeight * rowBytes;
+            lock (_previewLock)
+            {
+                if (_previewBuffer.Length != size)
+                    _previewBuffer = new byte[size];
+                fixed (byte* dst = _previewBuffer)
+                {
+                    if (rowPitch == rowBytes)
+                    {
+                        Buffer.MemoryCopy((void*)src, dst, size, size);
+                    }
+                    else
+                    {
+                        for (var y = 0; y < PreviewHeight; y++)
+                            Buffer.MemoryCopy((void*)(src + y * rowPitch), dst + y * rowBytes, rowBytes, rowBytes);
+                    }
+                }
+                _previewSeq++;
+            }
+        }
+        finally
+        {
+            _ctx.Unmap(_previewStaging, 0);
+        }
+    }
+
+    /// <summary>
+    /// Copia o último frame de preview para o buffer do chamador (thread-safe, sem chamadas D3D).
+    /// Retorna false se não há frame novo.
+    /// </summary>
+    public bool TryCopyPreviewInto(byte[] dst, out long seq)
+    {
+        seq = _previewReadSeq;
+        if (_previewSeq == _previewReadSeq) return false;
+        lock (_previewLock)
+        {
+            if (_previewSeq == _previewReadSeq) return false;
+            Buffer.BlockCopy(_previewBuffer, 0, dst, 0, Math.Min(dst.Length, _previewBuffer.Length));
+            _previewReadSeq = _previewSeq;
+            seq = _previewReadSeq;
+            return true;
+        }
+    }
+
+    private void DrawSlot(int index, float dt, bool animate)
     {
         Slot s;
         FFDecoder? dec;
@@ -305,7 +526,7 @@ float4 main(VSOut i) : SV_TARGET
         {
             s = _slots[index];
             // progresso da opacidade (dentro do lock para consistência)
-            if (s.Opacity != s.Target)
+            if (animate && s.Opacity != s.Target)
             {
                 var step = s.Rate * dt;
                 var diff = s.Target - s.Opacity;
@@ -315,10 +536,10 @@ float4 main(VSOut i) : SV_TARGET
             }
             dec = s.Source;
 
-            // áudio segue o fade de vídeo: volume efetivo = base × opacidade
-            if (dec != null)
+            // áudio segue o fade de vídeo: volume efetivo = base × escala(cue) × opacidade
+            if (animate && dec != null)
             {
-                var v = s.Opacity * s.BaseVolume;
+                var v = s.Opacity * s.BaseVolume * s.VolumeScale;
                 if (Math.Abs(v - s.LastAppliedVolume) > 0.004)
                 {
                     dec.Volume = v;
@@ -340,6 +561,8 @@ float4 main(VSOut i) : SV_TARGET
             stride = dec.FrameStride; gen = dec.FrameGen;
         }
 
+        if (_ctx is null) return;
+
         if (data is not null && gen != s.Gen)
         {
             EnsureTexture(s, w, h);
@@ -353,13 +576,15 @@ float4 main(VSOut i) : SV_TARGET
         }
 
         if (s.Srv is null) return;
+        if (_cb is null) return;
 
         // constant buffer: rect + opacity + rotation
         var cb = new CbData { X = s.X, Y = s.Y, W = s.W, H = s.H, Opacity = (float)s.Opacity, Rotation = s.Rotation };
-        var mapped = _ctx.Map(_cb!, 0, MapMode.WriteDiscard, Vortice.Direct3D11.MapFlags.None);
+        var mapped = _ctx.Map(_cb, 0, MapMode.WriteDiscard, Vortice.Direct3D11.MapFlags.None);
         *(CbData*)mapped.DataPointer = cb;
-        _ctx.Unmap(_cb!, 0);
+        _ctx.Unmap(_cb, 0);
 
+        _ctx.OMSetBlendState(s.BlendAdd ? _blendAdd : _blend);
         _ctx.PSSetShaderResource(0, s.Srv);
         _ctx.Draw(6, 0);
     }
@@ -376,11 +601,12 @@ float4 main(VSOut i) : SV_TARGET
     private void EnsureTexture(Slot s, int w, int h)
     {
         if (s.Tex is not null && s.TexW == w && s.TexH == h) return;
+        if (_device is null) return;
 
         s.Srv?.Dispose();
         s.Tex?.Dispose();
 
-        s.Tex = _device!.CreateTexture2D(new Texture2DDescription
+        s.Tex = _device.CreateTexture2D(new Texture2DDescription
         {
             Width = (uint)w,
             Height = (uint)h,
@@ -408,9 +634,13 @@ float4 main(VSOut i) : SV_TARGET
         }
         _rtv?.Dispose();
         _swap?.Dispose();
+        _previewStaging?.Dispose();
+        _previewRtv?.Dispose();
+        _previewTex?.Dispose();
         _cb?.Dispose();
         _sampler?.Dispose();
         _blend?.Dispose();
+        _blendAdd?.Dispose();
         _vs?.Dispose();
         _ps?.Dispose();
         _ctx?.Dispose();

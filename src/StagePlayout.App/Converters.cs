@@ -31,6 +31,6 @@ public class EqualsConverter : IValueConverter
 
         if (double.TryParse(parameter?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
             return p;
-        return parameter;
+        return parameter ?? Binding.DoNothing;
     }
 }

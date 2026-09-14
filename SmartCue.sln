@@ -5,9 +5,13 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B74492F0-4C51-4D27-9DD6-DB6352780FEC}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{8531A0C0-7B61-405B-AD4C-3C4B9BD2D46D}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartCue.Core", "src\StagePlayout.Core\StagePlayout.Core.csproj", "{5187DB61-F2B9-4D8E-A0F2-5EFE46701070}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartCue.App", "src\StagePlayout.App\StagePlayout.App.csproj", "{D14E8548-B862-4CD0-888B-62B52E71FAF5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SmartCue.Tests", "tests\StagePlayout.Tests\StagePlayout.Tests.csproj", "{15F79D89-16B3-47FC-89DD-1483CD871A97}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -26,9 +30,14 @@ Global
 		{D14E8548-B862-4CD0-888B-62B52E71FAF5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D14E8548-B862-4CD0-888B-62B52E71FAF5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D14E8548-B862-4CD0-888B-62B52E71FAF5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15F79D89-16B3-47FC-89DD-1483CD871A97}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15F79D89-16B3-47FC-89DD-1483CD871A97}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15F79D89-16B3-47FC-89DD-1483CD871A97}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15F79D89-16B3-47FC-89DD-1483CD871A97}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{5187DB61-F2B9-4D8E-A0F2-5EFE46701070} = {B74492F0-4C51-4D27-9DD6-DB6352780FEC}
 		{D14E8548-B862-4CD0-888B-62B52E71FAF5} = {B74492F0-4C51-4D27-9DD6-DB6352780FEC}
+		{15F79D89-16B3-47FC-89DD-1483CD871A97} = {8531A0C0-7B61-405B-AD4C-3C4B9BD2D46D}
 	EndGlobalSection
 EndGlobal

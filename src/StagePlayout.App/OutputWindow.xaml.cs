@@ -21,7 +21,11 @@ public partial class OutputWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape)
+        // Escape no ecrã de palco não pode matar o show por acidente:
+        // só fecha com Ctrl+Shift+Esc explícito.
+        if (e.Key == Key.Escape &&
+            (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift))
+                == (ModifierKeys.Control | ModifierKeys.Shift))
             Close();
         base.OnKeyDown(e);
     }

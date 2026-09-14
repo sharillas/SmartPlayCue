@@ -13,6 +13,12 @@ public class Playlist
 
     public int CurrentIndex { get; private set; } = -1;
 
+    /// <summary>Nome do ecrã de saída (ex.: "\\.\DISPLAY2"); vazio = 2.º ecrã automático.</summary>
+    public string OutputDevice { get; set; } = "";
+
+    /// <summary>Refresh de saída preferido (Hz); 0 = automático (modo atual do sistema).</summary>
+    public int OutputRefresh { get; set; } = 0;
+
     public Cue? Current =>
         CurrentIndex >= 0 && CurrentIndex < Cues.Count ? Cues[CurrentIndex] : null;
 

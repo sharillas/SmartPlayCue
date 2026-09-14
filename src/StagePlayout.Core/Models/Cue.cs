@@ -140,11 +140,35 @@ public class Cue : INotifyPropertyChanged
         }
     }
 
-    public double FadeInSeconds { get; set; } = 0.5;
-    public double FadeOutSeconds { get; set; } = 0.5;
+    private double _fadeInSeconds = 0.5;
+    public double FadeInSeconds
+    {
+        get => _fadeInSeconds;
+        set { _fadeInSeconds = value; OnPropertyChanged(); }
+    }
+
+    private double _fadeOutSeconds = 0.5;
+    public double FadeOutSeconds
+    {
+        get => _fadeOutSeconds;
+        set { _fadeOutSeconds = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Tipo de transição de entrada: Cross (dissolve) ou Dip (via preto).</summary>
+    private FadeType _fadeType = FadeType.Cross;
+    public FadeType FadeType
+    {
+        get => _fadeType;
+        set { _fadeType = value; OnPropertyChanged(); }
+    }
 
     /// <summary>0.0 – 1.0</summary>
-    public double Volume { get; set; } = 1.0;
+    private double _volume = 1.0;
+    public double Volume
+    {
+        get => _volume;
+        set { _volume = value; OnPropertyChanged(); }
+    }
 
     /// <summary>Output screen index (1-based).</summary>
     [JsonIgnore]

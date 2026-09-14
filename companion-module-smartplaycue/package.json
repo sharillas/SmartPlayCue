@@ -1,6 +1,6 @@
 {
 	"name": "smartplaycue",
-	"version": "2.1.0",
+	"version": "2.5.0",
 	"main": "main.js",
 	"type": "module",
 	"manufacturer": "SmartChoice",

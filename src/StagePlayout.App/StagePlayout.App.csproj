@@ -12,7 +12,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>2.1.2</Version>
+    <Version>2.5.0</Version>
     <Product>Smart Play Cue</Product>
     <AssemblyName>SmartPlayCue</AssemblyName>
   </PropertyGroup>
@@ -64,7 +64,6 @@
   <ItemGroup>
     <PackageReference Include="Flyleaf.FFmpeg.Bindings" Version="8.1.0" />
     <PackageReference Include="NAudio" Version="2.3.0" />
-    <PackageReference Include="Rug.Osc" Version="1.2.5" />
     <PackageReference Include="SharpVectors" Version="1.8.5" />
     <PackageReference Include="Vortice.D3DCompiler" Version="3.7.6-beta" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.7.6-beta" />

@@ -1,6 +1,44 @@
 export function getPresets() {
-	const pad = (v) => String(v).padStart(2, '0')
 	return [
+		{
+			category: 'Smart Play Cue',
+			name: 'GO',
+			type: 'button',
+			style: {
+				text: 'GO',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x1b5e20,
+			},
+			steps: [{ down: [{ actionId: 'go', options: {} }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Previous cue',
+			type: 'button',
+			style: {
+				text: 'PREV',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x283593,
+			},
+			steps: [{ down: [{ actionId: 'prev', options: {} }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Pause / resume',
+			type: 'button',
+			style: {
+				text: 'PAUSE',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0xe65100,
+			},
+			steps: [{ down: [{ actionId: 'pause', options: {} }], up: [] }],
+			feedbacks: [],
+		},
 		{
 			category: 'Smart Play Cue',
 			name: 'Play cue',
@@ -55,6 +93,71 @@ export function getPresets() {
 		},
 		{
 			category: 'Smart Play Cue',
+			name: 'Layer 1 show/hide',
+			type: 'button',
+			style: {
+				text: 'L1\\nSHOW',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x00695c,
+			},
+			steps: [{ down: [{ actionId: 'layerShow', options: { layer: '1', action: 'toggle' } }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Layer 2 show/hide',
+			type: 'button',
+			style: {
+				text: 'L2\\nSHOW',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x00695c,
+			},
+			steps: [{ down: [{ actionId: 'layerShow', options: { layer: '2', action: 'toggle' } }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Layer 1 mute',
+			type: 'button',
+			style: {
+				text: 'L1\\nMUTE',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x455a64,
+			},
+			steps: [{ down: [{ actionId: 'layerMute', options: { layer: '1' } }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Layer 2 mute',
+			type: 'button',
+			style: {
+				text: 'L2\\nMUTE',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x455a64,
+			},
+			steps: [{ down: [{ actionId: 'layerMute', options: { layer: '2' } }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
+			name: 'Layer 1 blend',
+			type: 'button',
+			style: {
+				text: 'L1\\nBLEND',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x5d4037,
+			},
+			steps: [{ down: [{ actionId: 'layerBlend', options: { layer: '1', mode: '1' } }], up: [] }],
+			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue',
 			name: 'PANIC',
 			type: 'button',
 			style: {
@@ -65,6 +168,35 @@ export function getPresets() {
 			},
 			steps: [{ down: [{ actionId: 'panic', options: {} }], up: [] }],
 			feedbacks: [],
+		},
+		{
+			category: 'Smart Play Cue - Time',
+			name: 'Remaining time (HH:MM:SS)',
+			type: 'button',
+			style: {
+				text: '--:--:--',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x222222,
+			},
+			steps: [],
+			feedbacks: [
+				{ feedbackId: 'remainingTime', options: {} },
+				{ feedbackId: 'timeCritical', options: {} },
+			],
+		},
+		{
+			category: 'Smart Play Cue - Time',
+			name: 'Current cue',
+			type: 'button',
+			style: {
+				text: 'NO CUE',
+				size: 'auto',
+				color: 0xffffff,
+				bgcolor: 0x222222,
+			},
+			steps: [],
+			feedbacks: [{ feedbackId: 'currentCue', options: {} }],
 		},
 		{
 			category: 'Smart Play Cue - Time',
