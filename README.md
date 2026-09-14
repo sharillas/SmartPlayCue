@@ -8,7 +8,7 @@ Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.5.0-green)
+![Status](https://img.shields.io/badge/version-2.5.1-green)
 
 ---
 
@@ -22,9 +22,9 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ![Smart Play Cue - Playing](screenshots/main-window-playing.png)
 
-### Output / Program display
+### Settings (output display + refresh presets)
 
-![Smart Play Cue - Output](screenshots/output-window.png)
+![Smart Play Cue - Settings](screenshots/main-window-settings.png)
 
 ---
 
@@ -38,7 +38,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Quick start
 
-1. Download `SmartPlayCue-v2.5.0-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.5.0.exe` (instalador) from [Releases](../../releases)
+1. Download `SmartPlayCue-v2.5.1-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.5.1.exe` (instalador) from [Releases](../../releases)
 2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
@@ -82,7 +82,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 - OSC feedback port: **8011** (remaining time: `/smartcue/time/hh|mm|ss`)
 - Feedback target is configurable in **`companion.json`** (created next to the exe on
   first run) — set `FeedbackHost` to the IP of the machine running Companion
-- Module: `companion-module-smartplaycue/` (`smartplaycue-2.5.0.tgz`)
+- Module: `companion-module-smartplaycue/` (`smartplaycue-2.5.1.tgz`)
 
 ## Tests
 
@@ -100,4 +100,9 @@ dotnet publish -c Release -r win-x64 --self-contained true \
 
 ## License
 
-MIT © SmartChoice — see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+**Copyright © 2026 Nelson Teixeira, SmartChoice. All Rights Reserved.**
+
+Proprietary software — desenvolvido por Nelson Teixeira (SmartChoice).
+Nenhuma parte pode ser copiada, modificada, distribuída ou usada sem
+autorização prévia por escrito. Ver [LICENSE](LICENSE).
+Componentes de terceiros: [NOTICE.md](NOTICE.md).

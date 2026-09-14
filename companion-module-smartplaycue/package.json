@@ -1,6 +1,6 @@
 {
 	"name": "smartplaycue",
-	"version": "2.5.0",
+	"version": "2.5.1",
 	"main": "main.js",
 	"type": "module",
 	"manufacturer": "SmartChoice",
@@ -8,7 +8,7 @@
 	"shortname": "smartplaycue",
 	"description": "Controlo do Smart Play Cue (video playout) via OSC",
 	"keywords": ["video", "playout", "smartcue"],
-	"license": "MIT",
+	"license": "UNLICENSED",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/smartchoice/smartcue-companion.git"
