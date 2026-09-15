@@ -8,7 +8,7 @@ Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.6.1-green)
+![Status](https://img.shields.io/badge/version-2.6.2-green)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-Companion%20module-F7DF1E?logo=javascript&logoColor=black)
 ![XAML](https://img.shields.io/badge/XAML-WPF-0C54C2)
@@ -44,7 +44,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Quick start
 
-1. Download `SmartPlayCue-v2.6.1-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.6.1.exe` (instalador) from [Releases](../../releases)
+1. Download `SmartPlayCue-v2.6.2-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.6.2.exe` (instalador) from [Releases](../../releases)
 2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
@@ -90,7 +90,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 - OSC feedback port: **8011** (remaining time: `/smartcue/time/hh|mm|ss`)
 - Feedback target is configurable in **`companion.json`** (created next to the exe on
   first run) — set `FeedbackHost` to the IP of the machine running Companion
-- Module: `companion-module-smartplaycue/` (`smartplaycue-2.5.2.tgz`)
+- Module: `companion-module-smartplaycue/` (`smartplaycue-2.6.2.tgz`)
   — segue as convenções oficiais do Companion (`companion/manifest.json` + `companion/HELP.md`).
   Nota: o módulo é **MIT** por requisito do ecossistema Companion; a aplicação
   Smart Play Cue em si é proprietária (All Rights Reserved).

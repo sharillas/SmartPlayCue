@@ -60,11 +60,10 @@ jobs:
         env:
           CI: 'true'
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: GitHub Release (tag)
+        uses: softprops/action-gh-release@v2
         with:
-          name: release-artifacts
-          path: |
+          files: |
             release-assets/SmartPlayCue-win64.zip
             companion-module-smartplaycue/*.tgz
-          if-no-files-found: error
+          generate_release_notes: true

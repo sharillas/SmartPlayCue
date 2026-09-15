@@ -75,6 +75,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         App.ApplyDarkMode(this);
 
+        // versão em uso no footer (saber sempre o que está instalado)
+        var v = typeof(App).Assembly.GetName().Version;
+        TxtFooter.Text =
+            $"Copyright © 2026 Nelson Teixeira · SmartChoice — All Rights Reserved · v{v.Major}.{v.Minor}.{v.Build}";
+
         // Set window icon from SVG logo
         Loaded += (_, _) =>
         {

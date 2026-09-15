@@ -599,7 +599,7 @@
                    Foreground="{StaticResource TextMutedBrush}" Text="READY"/>
 
         <!-- ===== Footer ===== -->
-        <TextBlock Grid.Row="4" HorizontalAlignment="Right" Margin="0,6,0,0"
+        <TextBlock Grid.Row="4" x:Name="TxtFooter" HorizontalAlignment="Right" Margin="0,6,0,0"
                    FontSize="10" Foreground="#999999"
                    Text="Copyright © 2026 Nelson Teixeira · SmartChoice — All Rights Reserved"/>
     </Grid>

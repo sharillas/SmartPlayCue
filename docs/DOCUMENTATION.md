@@ -1,7 +1,7 @@
 # Smart Play Cue — Documentação Completa
 
 **Software de playout de vídeo para eventos ao vivo** — minimalista, dark mode azul escuro, nativo Windows.
-Desenvolvido por SmartChoice. Versão 2.6.1.
+Desenvolvido por SmartChoice. Versão 2.6.2.
 
 ---
 
@@ -434,6 +434,14 @@ Registo honesto dos bugs encontrados (para referência futura):
     (`FirstOrDefault(!Primary)` em vez de `screens[1]`).*
 39. **Rotação 90°/270° distorcia o letterbox**: o aspect era calculado sem trocar
     w/h. *Lição: rotação muda o aspect para o cálculo Uniform.*
+40. **Instalador sem versão visível (2.6.2)**: o footer mostrava só o copyright —
+    impossível saber a versão instalada. *Lição: versão da assembly no footer
+    (`v2.6.2`); releases criadas no GitHub automaticamente por tag (CI com
+    softprops/action-gh-release: zip + módulo tgz).*
+41. **Companion "missing manifest"**: só acontece com os tgz antigos (<2.5.2,
+    sem `companion/manifest.json`). O manifest atual valida contra o schema
+    oficial do `@companion-module/base` (runtime `node22`/`nodejs-ipc`).
+    *Lição: importar sempre o tgz mais recente da release.*
 
 ---
 
