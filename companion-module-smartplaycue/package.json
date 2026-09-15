@@ -4,10 +4,17 @@
 	"main": "main.js",
 	"type": "module",
 	"manufacturer": "SmartChoice",
-	"product": ["Smart Play Cue"],
+	"product": [
+		"Smart Play Cue"
+	],
 	"shortname": "smartplaycue",
 	"description": "Controlo do Smart Play Cue (video playout para palco) via OSC",
-	"keywords": ["video", "playout", "stage", "osc"],
+	"keywords": [
+		"video",
+		"playout",
+		"stage",
+		"osc"
+	],
 	"license": "MIT",
 	"repository": {
 		"type": "git",
@@ -25,7 +32,7 @@
 		"check": "companion-module-check"
 	},
 	"dependencies": {
-		"@companion-module/base": "~2.1.3"
+		"@companion-module/base": "~1.14.0"
 	},
 	"devDependencies": {
 		"@companion-module/tools": "^3.1.0"

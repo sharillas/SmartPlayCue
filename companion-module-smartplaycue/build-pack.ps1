@@ -18,15 +18,24 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "package") | Out-Nul
 Copy-Item main.js, presets.js, README.md, package.json -Destination (Join-Path $stage "package")
 Copy-Item companion -Destination (Join-Path $stage "package") -Recurse
 
-# O build oficial preenche a versao e o apiVersion do manifest a partir do
-# package.json. Fazemos o mesmo aqui (sem BOM para o JSON.parse do Companion).
-# IMPORTANTE: apiVersion tem de ser COMPATIVEL com o Companion instalado
-# (ex.: 2.1.x para o Companion 5.0.5) — 0.0.0 torna o modulo invisivel na lista.
+# Bundling das dependencias (o Companion 5 nao instala deps de modulos importados):
+# o modulo tem de levar o @companion-module/base (e o colord) dentro do tgz.
+$nm = Join-Path $stage "package\node_modules"
+New-Item -ItemType Directory -Force -Path $nm | Out-Null
+$scoped = Join-Path $nm "@companion-module"
+New-Item -ItemType Directory -Force -Path $scoped | Out-Null
+Copy-Item node_modules\@companion-module\base -Destination $scoped -Recurse
+if (Test-Path node_modules\colord) {
+    Copy-Item node_modules\colord -Destination $nm -Recurse
+}
+
+# O build oficial preenche a versao do manifest a partir do package.json.
+# Fazemos o mesmo aqui (sem BOM para o JSON.parse do Companion).
+# O apiVersion fica como esta no companion/manifest.json (1.14.0 = formato
+# legacy suportado pelo Companion 3.3+ ate 5.x; 0.0.0 torna o modulo invisivel).
 $manifestPath = Join-Path $stage "package\companion\manifest.json"
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $manifest.version = $pkg.version
-$baseDep = [string]$pkg.dependencies.'@companion-module/base'
-$manifest.runtime.apiVersion = ($baseDep -replace '[~^]', '').Trim()
 [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 10))
 
 Push-Location $stage
