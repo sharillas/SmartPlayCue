@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     // Engine de programa: FFDecoders próprios alimentam o compositor GPU
     // (2 slots com crossfade real). Preload = decoder aberto em pausa no 1.º frame.
     private readonly FFDecoder?[] _slotDec = new FFDecoder?[2];
+    private readonly double[] _slotVolScale = { 1.0, 1.0 }; // volume por cue de cada slot
     private readonly HashSet<int> _closingSlots = new();
     private int _liveSlot = -1;
     private FFDecoder? _standbyDec;
@@ -229,6 +230,8 @@ public partial class MainWindow : Window
         CueList.AllowDrop = !on;
         BtnAddMedia.IsEnabled = !on;
         BtnOpenProject.IsEnabled = !on;
+        foreach (var c in _playlist.Cues)
+            c.EditLocked = on; // bloqueia editores inline (FadeBar)
         UpdateTitle();
 
         TxtStatus.Text = on
@@ -490,6 +493,9 @@ public partial class MainWindow : Window
 
         incoming.Loop = cue.End == CueEnd.Loop;
         incoming.Volume = VolumeSlider.Value / 100.0;
+        incoming.AudioDeviceId = cue.AudioOutputDevice.Length > 0
+            ? cue.AudioOutputDevice
+            : _masterAudioDevice; // dispositivo por cue (ou master)
         incoming.Ended += Decoder_Ended;
 
         _slotDec[newSlot]?.Dispose();
@@ -502,9 +508,10 @@ public partial class MainWindow : Window
         ApplyFillGeometry(cue, incoming, comp, newSlot);
         comp.SetZ(newSlot, gen);            // o mais recente desenha por cima
         comp.SetOpacity(newSlot, 0, 0);
-        comp.SetVolumeScale(newSlot, Math.Clamp(cue.Volume, 0.0, 1.0));
+        var volScale = cue.IsAudioMuted ? 0.0 : Math.Clamp(cue.Volume, 0.0, 1.0);
+        comp.SetVolumeScale(newSlot, volScale);
+        _slotVolScale[newSlot] = volScale;  // guardar p/ reattach do output
         ApplyVolumes();                     // respeita master mute
-        if (cue.IsAudioMuted) incoming.Volume = 0; // per-cue mute
 
         var oldSlot = _liveSlot;
         var dip = cue.FadeType == FadeType.Dip;
@@ -654,6 +661,9 @@ public partial class MainWindow : Window
         _standbyDec = null;
 
         var dec = new FFDecoder();
+        dec.AudioDeviceId = next.AudioOutputDevice.Length > 0
+            ? next.AudioOutputDevice
+            : _masterAudioDevice;
         Task.Run(() =>
         {
             if (!dec.Open(next.FilePath, autoPlay: false))
@@ -1263,8 +1273,27 @@ public partial class MainWindow : Window
 
     private void CueList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // arrastar a ordem só a partir de zonas "neutras" da linha: botões,
+        // thumbs do FadeBar e slider não podem disparar o reorder da cue
+        if (IsInteractiveSource(e.OriginalSource))
+        {
+            _dragCue = null;
+            return;
+        }
         _dragStart = e.GetPosition(null);
         _dragCue = HitTestItem(e.GetPosition(CueList))?.DataContext as Cue;
+    }
+
+    /// <summary>True se o clique caiu num controlo interativo (botão, thumb, FadeBar, scrollbar).</summary>
+    private static bool IsInteractiveSource(object? original)
+    {
+        for (var d = original as DependencyObject; d is not null;
+             d = System.Windows.Media.VisualTreeHelper.GetParent(d))
+        {
+            if (d is ButtonBase or Thumb or Controls.FadeBar) return true;
+            if (d is ListBoxItem) break; // chegou à linha sem interativos
+        }
+        return false;
     }
 
     private void CueList_PreviewMouseMove(object sender, MouseEventArgs e)
@@ -1694,6 +1723,7 @@ public partial class MainWindow : Window
         Task.Run(() =>
         {
             var dec = new FFDecoder();
+            dec.AudioDeviceId = _masterAudioDevice; // layers usam o device master
             if (!dec.Open(file, autoPlay: false))
             {
                 dec.Dispose();
@@ -1954,6 +1984,7 @@ public partial class MainWindow : Window
                 {
                     comp.SetSource(slot, d);
                     comp.SetGeometry(slot, 0, 0, 1, 1);
+                    comp.SetVolumeScale(slot, _slotVolScale[slot]); // manter volume por cue
                     comp.SetOpacity(slot, 1, 0);
                 }
 
@@ -2137,8 +2168,11 @@ public partial class MainWindow : Window
         e.Handled = true;
         if ((sender as Button)?.Tag is Cue cue)
         {
+            // Tocar ESTE cue (seleciona-o como atual e transita diretamente —
+            // nunca Go(), que avança para o cue seguinte)
             var idx = _playlist.Cues.IndexOf(cue);
-            if (idx >= 0) { _playlist.Select(idx); Go(); }
+            if (idx >= 0 && _playlist.Select(idx) is not null)
+                TransitionTo(cue);
         }
     }
 
@@ -2168,12 +2202,16 @@ public partial class MainWindow : Window
 
         if (cue is not null)
         {
-            _playlist.Select(_playlist.Cues.IndexOf(cue));
+            // prepara o cue para replay (botão PLAY da linha); não o seleciona
+            // como "no ar" — evita ON AIR falso na UI
             _standbyCue = cue;
             _standbyDec?.Dispose();
             _standbyDec = null;
 
             var dec = new FFDecoder();
+            dec.AudioDeviceId = cue.AudioOutputDevice.Length > 0
+                ? cue.AudioOutputDevice
+                : _masterAudioDevice;
             Task.Run(() =>
             {
                 if (!dec.Open(cue.FilePath, autoPlay: false))
@@ -2334,9 +2372,11 @@ public partial class MainWindow : Window
     {
         if (_liveSlot >= 0 && _playlist.Current?.Id == cue.Id)
         {
-            var dec = _slotDec[_liveSlot];
-            if (dec is not null)
-                dec.Volume = cue.IsAudioMuted ? 0.0 : 1.0;
+            // mute por cue entra na cadeia de volume do compositor
+            // (mute + volume por cue sobrevivem ao fade e ao reattach)
+            var scale = cue.IsAudioMuted ? 0.0 : Math.Clamp(cue.Volume, 0.0, 1.0);
+            _slotVolScale[_liveSlot] = scale;
+            _output?.Compositor?.SetVolumeScale(_liveSlot, scale);
         }
     }
 

@@ -271,6 +271,7 @@
                                     <ProgressBar Value="{Binding Progress}" Margin="0,4,0,0"
                                                 Visibility="{Binding IsLive, Converter={StaticResource BoolToVis}}"/>
                                     <controls:FadeBar Margin="0,4,0,0"
+                                                      IsEnabled="{Binding EditLocked, Converter={StaticResource InverseBool}}"
                                                       FadeInSeconds="{Binding FadeInSeconds, Mode=TwoWay}"
                                                       FadeOutSeconds="{Binding FadeOutSeconds, Mode=TwoWay}">
                                         <controls:FadeBar.Style>

@@ -28,6 +28,9 @@ public unsafe sealed class FFDecoder : IDisposable
     public bool Loop;
     public event EventHandler? Ended;
 
+    /// <summary>ID do dispositivo de saída de áudio (MMDevice.ID); vazio = default do sistema.</summary>
+    public string AudioDeviceId { get; set; } = "";
+
     private double _volume = 1.0;
     public double Volume
     {
@@ -91,6 +94,7 @@ public unsafe sealed class FFDecoder : IDisposable
     private BufferedWaveProvider? _waveProvider;
     private VolumeWaveProvider16? _volProvider;
     private WasapiOut? _wasapi;
+    private NAudio.CoreAudioApi.MMDevice? _audioDevice;
     private byte[] _audioBuf = Array.Empty<byte>();
 
     private Thread? _thread;
@@ -262,7 +266,22 @@ public unsafe sealed class FFDecoder : IDisposable
                 DiscardOnBufferOverflow = true
             };
             _volProvider = new VolumeWaveProvider16(_waveProvider) { Volume = (float)_volume };
-            _wasapi = new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 60);
+
+            // dispositivo de saída: o pedido (por cue/master) ou o default do sistema
+            if (AudioDeviceId.Length > 0)
+            {
+                try
+                {
+                    using var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
+                    _audioDevice = enumerator
+                        .EnumerateAudioEndPoints(NAudio.CoreAudioApi.DataFlow.Render, NAudio.CoreAudioApi.DeviceState.Active)
+                        .FirstOrDefault(d => d.ID == AudioDeviceId);
+                }
+                catch { _audioDevice = null; }
+            }
+            _wasapi = _audioDevice is not null
+                ? new WasapiOut(_audioDevice, NAudio.CoreAudioApi.AudioClientShareMode.Shared, true, 60)
+                : new WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 60);
             _wasapi.Init(_volProvider);
             // Nota: só toca quando Play() for chamado
         }
@@ -354,7 +373,9 @@ public unsafe sealed class FFDecoder : IDisposable
         _audioFailed = true;
         try { _wasapi?.Stop(); } catch { }
         try { _wasapi?.Dispose(); } catch { }
+        try { _audioDevice?.Dispose(); } catch { }
         _wasapi = null;
+        _audioDevice = null;
         _waveProvider = null;
         _volProvider = null;
         _aidx = -1; // não processar mais pacotes de áudio
@@ -660,6 +681,8 @@ public unsafe sealed class FFDecoder : IDisposable
         try { _wasapi?.Stop(); } catch { }
         _wasapi?.Dispose();
         _wasapi = null;
+        _audioDevice?.Dispose();
+        _audioDevice = null;
 
         if (_vctx != null) { fixed (AVCodecContext** p = &_vctx) avcodec_free_context(p); }
         if (_actx != null) { fixed (AVCodecContext** p = &_actx) avcodec_free_context(p); }

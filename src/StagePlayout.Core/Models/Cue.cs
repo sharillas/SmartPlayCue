@@ -212,7 +212,7 @@ public class Cue : INotifyPropertyChanged
 
     [JsonIgnore] public string RotationText => $"{_rotation}°";
 
-    /// <summary>True if this cue has an audio track.</summary>
+    /// <summary>True se o cue tem um audio track.</summary>
     [JsonIgnore]
     public bool HasAudio
     {
@@ -220,6 +220,15 @@ public class Cue : INotifyPropertyChanged
         set { _hasAudio = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowAudioMeter)); }
     }
     private bool _hasAudio;
+
+    /// <summary>Show mode: true bloqueia editores inline (FadeBar) deste cue.</summary>
+    [JsonIgnore]
+    private bool _editLocked;
+    public bool EditLocked
+    {
+        get => _editLocked;
+        set { _editLocked = value; OnPropertyChanged(); }
+    }
 
     /// <summary>True if audio meter should be visible (has audio AND is live).</summary>
     [JsonIgnore] public bool ShowAudioMeter => _hasAudio && IsLive;

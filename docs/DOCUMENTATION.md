@@ -1,7 +1,7 @@
 # Smart Play Cue — Documentação Completa
 
 **Software de playout de vídeo para eventos ao vivo** — minimalista, dark mode azul escuro, nativo Windows.
-Desenvolvido por SmartChoice. Versão 2.5.1.
+Desenvolvido por SmartChoice. Versão 2.5.2.
 
 ---
 
@@ -400,6 +400,20 @@ Registo honesto dos bugs encontrados (para referência futura):
 33. **Multi-layers**: slots fixos → lista dinâmica de 4 com re-encadeamento
     (ReattachLayers) após add/remove. *Lição: índices de slot = 2 + posição
     na lista; manter uma única rotina de reattach evita slots órfãos.*
+34. **PLAY da linha tocava o cue seguinte (2.5.2)**: `Select(idx)` + `Go()`
+    avançava +1. *Lição: tocar um cue específico = `Select` + `TransitionTo`
+    direto; `Go()` é sempre "próximo".*
+35. **Arrastar FadeBar/butões reordenava a cue**: os handlers de drag da lista
+    (PreviewMouse) disparavam com origem em controlos interativos.
+    *Lição: iniciar o reorder só de zonas neutras da linha
+    (`IsInteractiveSource` — ButtonBase/Thumb/FadeBar).*
+36. **Definições sem efeito (auditoria completa)**: mute por cue era sobrescrito
+    pelo loop de fade (agora entra na `VolumeScale` do compositor); devices de
+    áudio por cue/master eram gravados mas nunca aplicados (agora `WasapiOut`
+    com `MMDevice` selecionado); reattach do output perdia o volume por cue;
+    rewind mostrava "ON AIR" falso. *Lição: cada propriedade do modelo tem de
+    ter caminho completo UI → modelo → engine; auditoria sistemática apanhou
+    6 destes.*
 
 ---
 

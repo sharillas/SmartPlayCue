@@ -6,6 +6,7 @@
     <Application.Resources>
 
         <local:EqualsConverter x:Key="EqualsConverter"/>
+        <local:InverseBoolConverter x:Key="InverseBool"/>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
         <!-- ===== Paleta Dark Gray ===== -->
