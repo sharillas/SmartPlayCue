@@ -89,7 +89,7 @@ public partial class MainWindow : Window
                 var logo = new BitmapImage();
                 logo.BeginInit();
                 logo.UriSource = new Uri("pack://application:,,,/Assets/logo.png");
-                logo.DecodePixelWidth = 64;
+                logo.DecodePixelWidth = 256;
                 logo.EndInit();
                 logo.Freeze();
                 Icon = logo;

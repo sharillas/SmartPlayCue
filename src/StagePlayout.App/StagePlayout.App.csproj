@@ -12,7 +12,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>2.6.3</Version>
+    <Version>2.6.4</Version>
     <Product>Smart Play Cue</Product>
     <AssemblyName>SmartPlayCue</AssemblyName>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
@@ -42,6 +42,7 @@
   <ItemGroup>
     <Resource Include="Assets\logo.svg" />
     <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\logo-144.png" />
     <Resource Include="Assets\Icons\fa-audio-play.svg" />
     <Resource Include="Assets\Icons\fa-audio-stop.svg" />
     <Resource Include="Assets\Icons\fa-audio-pause.svg" />
@@ -74,3 +75,4 @@
   </ItemGroup>
 
 </Project>
+

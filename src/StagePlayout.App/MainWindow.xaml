@@ -157,7 +157,9 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <Image Source="pack://application:,,,/Assets/logo.png"
+                <Image Source="pack://application:,,,/Assets/logo-144.png"
+                       RenderOptions.BitmapScalingMode="Fant"
+                       RenderOptions.EdgeMode="Aliased"
                        Height="36" Width="36" Margin="0,0,8,0" Stretch="Uniform"/>
                 <StackPanel>
                     <TextBlock Text="Smart Play Cue" FontSize="32" FontWeight="Bold"
