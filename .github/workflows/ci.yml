@@ -104,3 +104,21 @@ jobs:
             dist/SmartPlayCue-Setup-*.exe
             companion-module-smartplaycue/Companion-Module-Smart.Play.Cue-v*.tgz
           generate_release_notes: true
+
+      - name: Limpar tgz duplicados (so fica o atual)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "ci" }
+          $keep = (Get-ChildItem companion-module-smartplaycue -Filter "Companion-Module-Smart.Play.Cue-v*.tgz" | Select-Object -First 1).Name
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
+            foreach ($a in $rel.assets) {
+              if ($a.name -like "*.tgz" -and $a.name -ne $keep) {
+                Invoke-RestMethod -Method Delete -Uri $a.url -Headers $headers | Out-Null
+                Write-Host "removido: $($a.name)"
+              }
+            }
+          } catch { Write-Host "limpeza: $_" }
+          exit 0
