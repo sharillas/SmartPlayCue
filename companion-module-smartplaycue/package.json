@@ -1,26 +1,33 @@
 {
 	"name": "smartplaycue",
-	"version": "2.5.1",
+	"version": "2.5.2",
 	"main": "main.js",
 	"type": "module",
 	"manufacturer": "SmartChoice",
 	"product": ["Smart Play Cue"],
 	"shortname": "smartplaycue",
-	"description": "Controlo do Smart Play Cue (video playout) via OSC",
-	"keywords": ["video", "playout", "smartcue"],
-	"license": "UNLICENSED",
+	"description": "Controlo do Smart Play Cue (video playout para palco) via OSC",
+	"keywords": ["video", "playout", "stage", "osc"],
+	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/smartchoice/smartcue-companion.git"
+		"url": "git+https://github.com/sharillas/SmartPlayCue.git"
 	},
 	"bugs": {
-		"url": "https://github.com/smartchoice/smartcue-companion/issues"
+		"url": "https://github.com/sharillas/SmartPlayCue/issues"
 	},
-	"homepage": "https://github.com/smartchoice/smartcue-companion#readme",
+	"homepage": "https://github.com/sharillas/SmartPlayCue#readme",
 	"engines": {
-		"node": ">=18"
+		"node": "^22.20"
+	},
+	"scripts": {
+		"package": "companion-module-build",
+		"check": "companion-module-check"
 	},
 	"dependencies": {
 		"@companion-module/base": "~2.1.3"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^3.1.0"
 	}
 }

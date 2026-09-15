@@ -1,0 +1,28 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
+	"id": "smartplaycue",
+	"name": "Smart Play Cue",
+	"shortname": "smartplaycue",
+	"description": "Controlo do Smart Play Cue (video playout para palco) via OSC",
+	"version": "0.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/sharillas/SmartPlayCue.git",
+	"bugs": "https://github.com/sharillas/SmartPlayCue/issues",
+	"maintainers": [
+		{
+			"name": "Nelson Teixeira",
+			"email": "smartchoice@example.com"
+		}
+	],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../main.js"
+	},
+	"legacyIds": [],
+	"manufacturer": "SmartChoice",
+	"products": ["Smart Play Cue"],
+	"keywords": ["video", "playout", "stage", "osc"]
+}

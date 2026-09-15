@@ -286,6 +286,8 @@ dotnet test SmartCue.sln -c Release
 
 # módulo Companion (tgz para instalação manual no Bitfocus Companion)
 npm pack          # em companion-module-smartplaycue\
+# via oficial do ecossistema (valida manifest + licencas):
+# yarn companion-module-build
 ```
 
 Requisitos de build: .NET 8 SDK · Inno Setup 6 (opcional, para o instalador).
