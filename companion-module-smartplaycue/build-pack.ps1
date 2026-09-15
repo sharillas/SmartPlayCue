@@ -18,11 +18,15 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "package") | Out-Nul
 Copy-Item main.js, presets.js, README.md, package.json -Destination (Join-Path $stage "package")
 Copy-Item companion -Destination (Join-Path $stage "package") -Recurse
 
-# O build oficial preenche a versao do manifest a partir do package.json.
-# Fazemos o mesmo aqui (sem BOM para o JSON.parse do Companion nao falhar).
+# O build oficial preenche a versao e o apiVersion do manifest a partir do
+# package.json. Fazemos o mesmo aqui (sem BOM para o JSON.parse do Companion).
+# IMPORTANTE: apiVersion tem de ser COMPATIVEL com o Companion instalado
+# (ex.: 2.1.x para o Companion 5.0.5) — 0.0.0 torna o modulo invisivel na lista.
 $manifestPath = Join-Path $stage "package\companion\manifest.json"
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $manifest.version = $pkg.version
+$baseDep = [string]$pkg.dependencies.'@companion-module/base'
+$manifest.runtime.apiVersion = ($baseDep -replace '[~^]', '').Trim()
 [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 10))
 
 Push-Location $stage
