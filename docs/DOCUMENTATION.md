@@ -1,7 +1,7 @@
 # Smart Play Cue — Documentação Completa
 
 **Software de playout de vídeo para eventos ao vivo** — minimalista, dark mode azul escuro, nativo Windows.
-Desenvolvido por SmartChoice. Versão 2.5.2.
+Desenvolvido por SmartChoice. Versão 2.6.0.
 
 ---
 
@@ -151,11 +151,21 @@ SmartCue.sln
 ### Preview PROGRAM e output
 
 - Coluna direita: **PROGRAM** mostra a saída composta ao vivo (30 fps) — programa + layers
-- **A SEGUIR** mostra o próximo cue
+- **A SEGUIR** mostra o próximo cue + o destino de output dele (OUT n / OUT AUTO)
 - **External Display** (right-click): escolher o ecrã de saída e o refresh (Auto/50/60/75 Hz).
   O preset é guardado no projeto; ao abrir o output o refresh é aplicado temporariamente
   e restaurado ao fechar.
 - **Guarda anti-acidente**: Escape no ecrã de palco só fecha o output com **Ctrl+Shift+Esc**
+
+### Routing por cue (vários outputs no show)
+
+- Cada cue tem um destino de output: badge **OUT** na linha (right-click): **Auto (preset
+  do projeto)** ou **Output 1..N** (ecrãs reais, com resolução).
+- Quando a cue entra, o output move-se automaticamente para o ecrã escolhido (LED + projetor
+  no mesmo show). O destino é guardado no projeto.
+- **Limitação**: não há crossfade entre cues em ecrãs diferentes — o outgoing corta no ecrã
+  antigo e o novo entra com fade no ecrã novo. Crossfade normal entre cues no mesmo ecrã.
+- A status bar mostra o ecrã ativo (ex.: `Output: DISPLAY2 1920×1080p60`).
 
 ### Transporte
 
@@ -414,6 +424,10 @@ Registo honesto dos bugs encontrados (para referência futura):
     rewind mostrava "ON AIR" falso. *Lição: cada propriedade do modelo tem de
     ter caminho completo UI → modelo → engine; auditoria sistemática apanhou
     6 destes.*
+37. **Badge OUT 1-4 era falso (2.6.0)**: a seleção de output por cue existia no UI
+    mas nunca era aplicada — agora é routing REAL: o output move-se para o ecrã
+    da cue quando ela entra (`SetOutput` com device alvo + `MoveOutputTo`).
+    *Lição: sem crossfade entre ecrãs — documentar a limitação em vez de fingir.*
 
 ---
 
@@ -435,6 +449,7 @@ Registo honesto dos bugs encontrados (para referência futura):
 - [x] Show mode (lock UI em live)
 - [x] Multi-layers (lista dinâmica até 4, com persistência)
 - [x] Editor de fades na linha (pegas arrastáveis no timebar de cada cue)
+- [x] Routing de output por cue (vários ecrãs no mesmo show)
 - [ ] Editor de duração/trim por cue (in/out points)
 - [ ] Scheduler por hora do dia (auto-fire a wall-clock)
 

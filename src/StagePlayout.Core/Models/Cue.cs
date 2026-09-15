@@ -170,14 +170,18 @@ public class Cue : INotifyPropertyChanged
         set { _volume = value; OnPropertyChanged(); }
     }
 
-    /// <summary>Output screen index (1-based).</summary>
-    [JsonIgnore]
+    /// <summary>
+    /// Output da cue: 0 = segue o preset do projeto; 1..N = ecrã N (1-based).
+    /// O output move-se para esse ecrã quando a cue entra.
+    /// </summary>
     public int Output
     {
         get => _output;
-        set { _output = value; OnPropertyChanged(); }
+        set { _output = value; OnPropertyChanged(); OnPropertyChanged(nameof(OutputText)); }
     }
-    private int _output = 2;
+    private int _output = 0;
+
+    [JsonIgnore] public string OutputText => _output == 0 ? "AUTO" : _output.ToString();
 
     /// <summary>Audio muted for this cue.</summary>
     [JsonIgnore]

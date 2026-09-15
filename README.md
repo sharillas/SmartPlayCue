@@ -8,7 +8,7 @@ Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.5.2-green)
+![Status](https://img.shields.io/badge/version-2.6.0-green)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-Companion%20module-F7DF1E?logo=javascript&logoColor=black)
 ![XAML](https://img.shields.io/badge/XAML-WPF-0C54C2)
@@ -44,7 +44,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Quick start
 
-1. Download `SmartPlayCue-v2.5.2-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.5.2.exe` (instalador) from [Releases](../../releases)
+1. Download `SmartPlayCue-v2.6.0-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.6.0.exe` (instalador) from [Releases](../../releases)
 2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
@@ -62,6 +62,8 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 - **PROGRAM preview** — live 30 fps preview of the composed output in the control window
 - **Overlay de confiança** — cue atual + tempo restante no canto do ecrã de palco (botão OVL)
 - **Output presets per project** — output display + refresh rate saved in the project file
+- **Per-cue output routing** — cada cue pode ir para um ecrã específico (badge OUT na linha);
+  o output move-se para esse ecrã quando a cue entra (LED + projetor no mesmo show)
 - **Crash-safe** — global exception handlers; UI errors never kill the show
   (log + minidump em `%TEMP%`)
 - **TDR-safe** — se a GPU reiniciar o driver, o compositor recria o device e continua

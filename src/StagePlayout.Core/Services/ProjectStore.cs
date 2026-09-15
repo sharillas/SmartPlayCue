@@ -17,7 +17,7 @@ public static class ProjectStore
     private record CueDto(Guid Id, string Name, string FilePath, string End,
                           double FadeInSeconds, double FadeOutSeconds, double Volume,
                           bool IsGroup, bool IsExpanded, Guid? ParentId, bool LoopGroup,
-                          string FadeType = "Cross");
+                          string FadeType = "Cross", int Output = 0);
 
     private record ProjectDto(List<CueDto> Cues, string OutputDevice, int OutputRefresh,
                               List<LayerStateDto>? Layers);
@@ -30,7 +30,7 @@ public static class ProjectStore
             c.Id, c.Name, MakePortable(c.FilePath, dir), c.End.ToString(),
             c.FadeInSeconds, c.FadeOutSeconds, c.Volume,
             c.IsGroup, c.IsExpanded, c.ParentId, c.LoopGroup,
-            c.FadeType.ToString())).ToList();
+            c.FadeType.ToString(), c.Output)).ToList();
 
         var portableLayers = layers?
             .Select(l => l with { File = MakePortable(l.File, dir) })
@@ -140,6 +140,7 @@ public static class ProjectStore
                 ParentId = d.ParentId,
                 LoopGroup = d.LoopGroup,
                 FadeType = Enum.TryParse<FadeType>(d.FadeType, out var ft) ? ft : FadeType.Cross,
+                Output = d.Output,
             });
         }
         playlist.RefreshChildCounts();

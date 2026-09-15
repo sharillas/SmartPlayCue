@@ -23,6 +23,7 @@ public class ProjectStoreTests
         pl.GroupSelection("grupo", new[] { a, b });
         a.End = CueEnd.Loop; // o fim é definido depois do agrupamento
         a.FadeType = FadeType.Dip;
+        a.Output = 3; // routing por cue
         pl.OutputDevice = @"\\.\DISPLAY2";
         pl.OutputRefresh = 50;
 
@@ -43,6 +44,7 @@ public class ProjectStoreTests
             Assert.Equal(@"C:\media\intro.mp4", intro.FilePath);
             Assert.Equal(CueEnd.Loop, intro.End);
             Assert.Equal(FadeType.Dip, intro.FadeType);
+            Assert.Equal(3, intro.Output); // routing por cue restaurado
             Assert.Equal(1, intro.FadeInSeconds);
             Assert.Equal(2, intro.FadeOutSeconds);
             Assert.Equal(@"C:\media\body.mov", body.FilePath);

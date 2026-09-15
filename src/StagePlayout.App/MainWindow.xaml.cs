@@ -188,6 +188,7 @@ public partial class MainWindow : Window
         nameof(Cue.Volume), nameof(Cue.IsGroup), nameof(Cue.IsExpanded), nameof(Cue.ParentId),
         nameof(Cue.LoopGroup), nameof(Cue.TagColor), nameof(Cue.FillMode), nameof(Cue.Rotation),
         nameof(Cue.IsAudioMuted), nameof(Cue.NextCueId), nameof(Cue.JumpTargetId), nameof(Cue.FadeType),
+        nameof(Cue.Output),
     };
 
     private void OnCueEditorChanged(object? sender, PropertyChangedEventArgs e)
@@ -420,9 +421,20 @@ public partial class MainWindow : Window
 
     private void TransitionTo(Cue cue)
     {
-        SetOutput(true);
+        // routing por cue: o output abre-se (ou move-se) para o ecrã da cue
+        // (Output 0 = AUTO = segue o preset do projeto)
+        SetOutput(true, ResolveCueDevice(cue));
         // garantir que o compositor já existe (hwnd criado no load da janela)
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => DoTransition(cue)));
+    }
+
+    /// <summary>Device de saída da cue: Output 1..N → ecrã N; 0 → preset do projeto.</summary>
+    private static string? ResolveCueDevice(Cue cue)
+    {
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        return cue.Output >= 1 && cue.Output <= screens.Length
+            ? screens[cue.Output - 1].DeviceName
+            : null;
     }
 
     private void DoTransition(Cue cue)
@@ -723,6 +735,8 @@ public partial class MainWindow : Window
         var nextName = next?.Name ?? "—";
         if (TxtNextCue.Text != nextName) TxtNextCue.Text = nextName;
         if (NextThumb.Source != next?.Thumbnail) NextThumb.Source = next?.Thumbnail;
+        var nextOut = next is null ? "" : next.Output > 0 ? $"OUT {next.Output}" : "OUT AUTO (preset)";
+        if (TxtNextOut.Text != nextOut) TxtNextOut.Text = nextOut;
 
         // tracking do cue no ar (barra de load / tempo restante na lista)
         var current = _playlist.Current;
@@ -1911,21 +1925,40 @@ public partial class MainWindow : Window
 
     // ===== Output (2.º ecrã / projetor) =====
 
+    private string _outputDeviceName = "";
+
     private void BtnOutput_Click(object sender, RoutedEventArgs e) => SetOutput(_output is null);
 
-    private void SetOutput(bool open)
+    private void SetOutput(bool open) => SetOutput(open, null);
+
+    /// <summary>
+    /// Abre/fecha a janela de output. Com <paramref name="requestedDevice"/> dado,
+    /// o output abre-se (ou move-se) para esse ecrã — routing por cue.
+    /// </summary>
+    private void SetOutput(bool open, string? requestedDevice)
     {
         if (!open)
         {
             _output?.Close(); // Closed handler para tudo (StopAllPlayback) e restaura o refresh
             return;
         }
-        if (_output is not null) return;
 
+        var screen = ResolveScreen(requestedDevice);
+
+        if (_output is not null)
+        {
+            // já aberto: mover para o ecrã alvo se for diferente
+            if (!string.Equals(_outputDeviceName, screen.DeviceName, StringComparison.OrdinalIgnoreCase))
+                MoveOutputTo(screen);
+            return;
+        }
+
+        _outputDeviceName = screen.DeviceName;
         _output = new OutputWindow();
         _output.Closed += (_, _) =>
         {
             _output = null;
+            _outputDeviceName = "";
             _overlay?.Close();
             _overlay = null;
             BtnOutput.Content = " External Display ON ";
@@ -1935,29 +1968,12 @@ public partial class MainWindow : Window
             UpdateStatus();
         };
 
-        var screens = System.Windows.Forms.Screen.AllScreens;
-        var target = _playlist.OutputDevice is { Length: > 0 } dev
-            ? screens.FirstOrDefault(s => string.Equals(s.DeviceName, dev, StringComparison.OrdinalIgnoreCase))
-            : null;
-        target ??= screens.Length > 1 ? screens[1] : screens[0];
+        ApplyOutputRefresh(screen);
 
-        // preset de refresh por projeto: aplica temporariamente o modo de saída
-        if (_playlist.OutputRefresh > 0)
-        {
-            _restoreRefreshDevice = target.DeviceName;
-            _restoreRefreshFreq = DisplayInfo.TrySetRefreshRate(target.DeviceName, _playlist.OutputRefresh, out var err);
-            Video.VideoLog.Write($"Output preset: {target.DeviceName} @{_playlist.OutputRefresh}Hz " +
-                                 $"-> {(err is null ? "OK" : err)} (orig {_restoreRefreshFreq}Hz)");
-        }
-        else
-        {
-            RestoreOutputRefresh();
-        }
-
-        _output.Left = target.Bounds.Left;
-        _output.Top = target.Bounds.Top;
-        _output.Width = target.Bounds.Width;
-        _output.Height = target.Bounds.Height;
+        _output.Left = screen.Bounds.Left;
+        _output.Top = screen.Bounds.Top;
+        _output.Width = screen.Bounds.Width;
+        _output.Height = screen.Bounds.Height;
         _output.Show();
         _output.WindowState = WindowState.Maximized;
 
@@ -1965,7 +1981,7 @@ public partial class MainWindow : Window
         EnsureOverlay();
 
         // deteção do modo da saída (interlaçado/progressivo) para a status bar
-        _outputInfo = DisplayInfo.Describe(target.DeviceName);
+        _outputInfo = DisplayInfo.Describe(screen.DeviceName);
         UpdateStatus();
 
         // reattach de todas as fontes no novo compositor (após loaded)
@@ -1994,6 +2010,54 @@ public partial class MainWindow : Window
         }));
 
         BtnOutput.Content = " External Display OFF ";
+    }
+
+    /// <summary>Resolve o ecrã para um device pedido (ou o preset do projeto; fallback 2.º/1.º ecrã).</summary>
+    private static System.Windows.Forms.Screen ResolveScreen(string? requestedDevice)
+    {
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        var name = requestedDevice is { Length: > 0 } dev ? dev : null;
+        var screen = name is not null
+            ? screens.FirstOrDefault(s => string.Equals(s.DeviceName, name, StringComparison.OrdinalIgnoreCase))
+            : null;
+        return screen ?? (screens.Length > 1 ? screens[1] : screens[0]);
+    }
+
+    /// <summary>Move a janela de output para outro ecrã (routing por cue). Sem crossfade entre ecrãs.</summary>
+    private void MoveOutputTo(System.Windows.Forms.Screen screen)
+    {
+        if (_output is null) return;
+
+        Video.VideoLog.Write($"Routing: output -> {screen.DeviceName}");
+        RestoreOutputRefresh();
+        _outputDeviceName = screen.DeviceName;
+        ApplyOutputRefresh(screen);
+
+        _output.WindowState = WindowState.Normal;
+        _output.Left = screen.Bounds.Left;
+        _output.Top = screen.Bounds.Top;
+        _output.Width = screen.Bounds.Width;
+        _output.Height = screen.Bounds.Height;
+        _output.WindowState = WindowState.Maximized;
+
+        _outputInfo = DisplayInfo.Describe(screen.DeviceName);
+        UpdateStatus();
+    }
+
+    /// <summary>Preset de refresh por projeto: aplica temporariamente o modo no ecrã dado.</summary>
+    private void ApplyOutputRefresh(System.Windows.Forms.Screen screen)
+    {
+        if (_playlist.OutputRefresh > 0)
+        {
+            _restoreRefreshDevice = screen.DeviceName;
+            _restoreRefreshFreq = DisplayInfo.TrySetRefreshRate(screen.DeviceName, _playlist.OutputRefresh, out var err);
+            Video.VideoLog.Write($"Output preset: {screen.DeviceName} @{_playlist.OutputRefresh}Hz " +
+                                 $"-> {(err is null ? "OK" : err)} (orig {_restoreRefreshFreq}Hz)");
+        }
+        else
+        {
+            RestoreOutputRefresh();
+        }
     }
 
     private void RestoreOutputRefresh()
@@ -2098,8 +2162,9 @@ public partial class MainWindow : Window
     {
         var preloaded = _standbyCue is not null ? $"preload: {_standbyCue.Name}" : "preload: —";
         var preset = _playlist.OutputRefresh > 0 ? $"  •  preset: {_playlist.OutputRefresh}Hz" : "";
+        var dev = _outputDeviceName.Replace("\\\\.\\", "");
         TxtStatus.Text = $"READY  •  {_playlist.Cues.Count} cues  •  {preloaded}  •  " +
-                         $"Output: {_outputInfo}{preset}  •  OSC porta {_companion.Port}";
+                         $"Output: {(dev.Length > 0 ? dev + " " : "")}{_outputInfo}{preset}  •  OSC porta {_companion.Port}";
     }
 
     private void Previous()
@@ -2383,17 +2448,34 @@ public partial class MainWindow : Window
     private void OutputBadge_RightClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         e.Handled = true;
-        if ((sender as Border)?.Tag is Cue cue)
+        if ((sender as Border)?.Tag is not Cue cue) return;
+
+        var menu = new ContextMenu();
+
+        var auto = new MenuItem
         {
-            var menu = new ContextMenu();
-            for (int i = 1; i <= 4; i++)
+            Header = "Auto (preset do projeto)",
+            IsCheckable = true,
+            IsChecked = cue.Output == 0,
+        };
+        auto.Click += (_, _) => cue.Output = 0;
+        menu.Items.Add(auto);
+        menu.Items.Add(new Separator());
+
+        var screens = System.Windows.Forms.Screen.AllScreens;
+        for (var i = 0; i < screens.Length; i++)
+        {
+            var idx = i + 1;
+            var name = screens[i].DeviceName.Replace("\\\\.\\", "");
+            var item = new MenuItem
             {
-                var item = new MenuItem { Header = $"Output {i}", IsCheckable = true, IsChecked = cue.Output == i };
-                var idx = i; // capture
-                item.Click += (_, _) => cue.Output = idx;
-                menu.Items.Add(item);
-            }
-            menu.IsOpen = true;
+                Header = $"Output {idx} — {name} ({screens[i].Bounds.Width}×{screens[i].Bounds.Height})",
+                IsCheckable = true,
+                IsChecked = cue.Output == idx,
+            };
+            item.Click += (_, _) => cue.Output = idx;
+            menu.Items.Add(item);
         }
+        menu.IsOpen = true;
     }
 }
