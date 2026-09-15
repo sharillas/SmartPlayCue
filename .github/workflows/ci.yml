@@ -75,11 +75,18 @@ jobs:
       - name: Instalador Inno Setup (opcional)
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Continue"
           try {
             winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements --silent | Out-Null
-            $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if ($iscc) { & $iscc installer\setup.iss }
-          } catch { Write-Host "Inno Setup nao disponivel - instalador fica de fora desta release" }
+          } catch { }
+          $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($iscc) {
+            & $iscc installer\setup.iss
+            Write-Host "Instalador gerado em dist\"
+          } else {
+            Write-Host "Inno Setup nao disponivel - instalador fica de fora desta release"
+          }
+          exit 0
 
       - name: Limpar assets antigos normalizados
         shell: pwsh
