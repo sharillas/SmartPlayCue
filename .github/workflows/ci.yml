@@ -41,11 +41,6 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Publish (self-contained single-file)
         run: dotnet publish src\StagePlayout.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 
@@ -59,11 +54,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
           Compress-Archive -Path publish\* -DestinationPath release-assets\SmartPlayCue-win64.zip -Force
 
-      - name: Pack módulo Companion
+      - name: Pack módulo Companion (compatível com o import)
+        shell: pwsh
         working-directory: companion-module-smartplaycue
-        run: npm pack
-        env:
-          CI: 'true'
+        run: ./build-pack.ps1 -OutFile smartplaycue-2.6.2.tgz
 
       - name: Nome amigável do módulo
         shell: pwsh
