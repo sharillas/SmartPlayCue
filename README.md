@@ -8,7 +8,7 @@ Bitfocus Companion / Stream Deck (OSC).
 
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
-![Status](https://img.shields.io/badge/version-2.6.4-green)
+![Status](https://img.shields.io/badge/version-2.6.5-green)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-Companion%20module-F7DF1E?logo=javascript&logoColor=black)
 ![XAML](https://img.shields.io/badge/XAML-WPF-0C54C2)
@@ -44,7 +44,7 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ## Quick start
 
-1. Download `SmartPlayCue-v2.6.4-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.6.4.exe` (instalador) from [Releases](../../releases)
+1. Download `SmartPlayCue-v2.6.5-win64.zip` (portátil) ou `SmartPlayCue-Setup-2.6.5.exe` (instalador) from [Releases](../../releases)
 2. Install and run — no dependencies (self-contained .NET)
 3. Drag videos into the list, double-click a cue or press **Space = GO**
 4. The output opens fullscreen on your second display / projector
@@ -119,4 +119,5 @@ Proprietary software — desenvolvido por Nelson Teixeira (SmartChoice).
 Nenhuma parte pode ser copiada, modificada, distribuída ou usada sem
 autorização prévia por escrito. Ver [LICENSE](LICENSE).
 Componentes de terceiros: [NOTICE.md](NOTICE.md).
+
 

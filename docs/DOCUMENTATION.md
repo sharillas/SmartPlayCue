@@ -470,3 +470,4 @@ Registo honesto dos bugs encontrados (para referência futura):
 > **NDI output foi descartado** deste projeto (SDK proprietário + licença de redistribuição).
 > Não está planeado.
 
+
