@@ -471,3 +471,4 @@ Registo honesto dos bugs encontrados (para referência futura):
 > Não está planeado.
 
 
+
