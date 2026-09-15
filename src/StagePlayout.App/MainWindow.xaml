@@ -157,8 +157,8 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <svgc:SvgViewbox Source="pack://application:,,,/Assets/app-icon.svg"
-                                 Height="36" Margin="0,0,8,0"/>
+                <Image Source="pack://application:,,,/Assets/logo.png"
+                       Height="36" Width="36" Margin="0,0,8,0" Stretch="Uniform"/>
                 <StackPanel>
                     <TextBlock Text="Smart Play Cue" FontSize="32" FontWeight="Bold"
                                FontFamily="pack://application:,,,/Assets/Fonts/#Bebas Neue"/>

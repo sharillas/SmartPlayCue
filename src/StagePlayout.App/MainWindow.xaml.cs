@@ -76,7 +76,7 @@ public partial class MainWindow : Window
         App.ApplyDarkMode(this);
 
         // versão em uso no footer (saber sempre o que está instalado)
-        var v = typeof(App).Assembly.GetName().Version;
+        var v = typeof(App).Assembly.GetName().Version ?? new Version(0, 0, 0);
         TxtFooter.Text =
             $"Copyright © 2026 Nelson Teixeira · SmartChoice — All Rights Reserved · v{v.Major}.{v.Minor}.{v.Build}";
 
@@ -85,18 +85,14 @@ public partial class MainWindow : Window
         {
             try
             {
-                var svg = new SharpVectors.Converters.SvgViewbox
-                {
-                    Source = new Uri("pack://application:,,,/Assets/app-icon.svg"),
-                    Width = 48, Height = 48
-                };
-                // Force layout
-                svg.Measure(new Size(48, 48));
-                svg.Arrange(new Rect(0, 0, 48, 48));
-                svg.UpdateLayout();
-                var bmp = new RenderTargetBitmap(48, 48, 96, 96, PixelFormats.Pbgra32);
-                bmp.Render(svg);
-                Icon = bmp;
+                // icon do logo nas janelas/taskbar
+                var logo = new BitmapImage();
+                logo.BeginInit();
+                logo.UriSource = new Uri("pack://application:,,,/Assets/logo.png");
+                logo.DecodePixelWidth = 64;
+                logo.EndInit();
+                logo.Freeze();
+                Icon = logo;
             }
             catch { }
         };

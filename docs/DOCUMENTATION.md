@@ -1,7 +1,7 @@
 # Smart Play Cue — Documentação Completa
 
 **Software de playout de vídeo para eventos ao vivo** — minimalista, dark mode azul escuro, nativo Windows.
-Desenvolvido por SmartChoice. Versão 2.6.2.
+Desenvolvido por SmartChoice. Versão 2.6.3.
 
 ---
 

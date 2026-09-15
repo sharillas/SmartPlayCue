@@ -3,7 +3,7 @@
 ; Self-contained .NET EXE (sem dependencias) + FFmpeg nativo
 ; ============================================================
 #define MyAppName "Smart Play Cue"
-#define MyAppVersion "2.6.2"
+#define MyAppVersion "2.6.3"
 #define MyAppPublisher "SmartChoice"
 #define MyAppExeName "SmartPlayCue.exe"
 
