@@ -41,6 +41,15 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar deps do módulo
+        working-directory: companion-module-smartplaycue
+        run: npm install --omit=dev
+
       - name: Publish (self-contained single-file)
         run: dotnet publish src\StagePlayout.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
 
