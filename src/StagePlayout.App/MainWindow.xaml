@@ -162,7 +162,7 @@
                        RenderOptions.EdgeMode="Aliased"
                        Height="36" Width="36" Margin="0,0,8,0" Stretch="Uniform"/>
                 <StackPanel>
-                    <TextBlock Text="Smart PlayCue" FontSize="30" FontWeight="SemiBold"
+                    <TextBlock Text="Smart PlayCue" FontSize="27" FontWeight="SemiBold"
                                FontFamily="Segoe UI"/>
                     <TextBlock Text="powered by smartchoice" FontSize="9"
                                Foreground="{StaticResource TextMutedBrush}"/>

@@ -12,7 +12,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Version>2.6.7</Version>
+    <Version>2.6.8</Version>
     <Product>Smart Play Cue</Product>
     <AssemblyName>SmartPlayCue</AssemblyName>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
@@ -75,6 +75,7 @@
   </ItemGroup>
 
 </Project>
+
 
 
 
