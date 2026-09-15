@@ -70,7 +70,7 @@ jobs:
         working-directory: companion-module-smartplaycue
         run: |
           $pack = Get-ChildItem *.tgz | Select-Object -First 1
-          Copy-Item $pack.FullName "Companion Module - Smart.Play.Cue (versao actual).tgz"
+          Copy-Item $pack.FullName "Companion-Module-Smart.Play.Cue-versao-actual.tgz"
 
       - name: GitHub Release (tag)
         uses: softprops/action-gh-release@v3
