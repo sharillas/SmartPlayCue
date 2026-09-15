@@ -83,6 +83,19 @@ jobs:
           }
           exit 0
 
+      - name: Preparar release (apagar release anterior do tag)
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "ci" }
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
+            Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/$($rel.id)" -Headers $headers | Out-Null
+            Write-Host "release anterior apagada"
+          } catch { Write-Host "sem release anterior: $_" }
+          exit 0
+
       - name: GitHub Release (tag)
         uses: softprops/action-gh-release@v3
         with:
@@ -91,20 +104,3 @@ jobs:
             dist/SmartPlayCue-Setup-*.exe
             companion-module-smartplaycue/Companion-Module-Smart.Play.Cue-v*.tgz
           generate_release_notes: true
-
-      - name: Limpar assets antigos normalizados
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "ci" }
-          try {
-            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
-            foreach ($a in $rel.assets) {
-              if ($a.name -like "Companion.Module.*" -or $a.name -like "smartplaycue-*.tgz" -or $a.name -like "Companion-Module-Smart.Play.Cue-versao-actual.tgz") {
-                Invoke-RestMethod -Method Delete -Uri $a.url -Headers $headers | Out-Null
-                Write-Host "removido: $($a.name)"
-              }
-            }
-          } catch { Write-Host "limpeza: $_" }
-          exit 0
