@@ -2012,7 +2012,11 @@ public partial class MainWindow : Window
         BtnOutput.Content = " External Display OFF ";
     }
 
-    /// <summary>Resolve o ecrã para um device pedido (ou o preset do projeto; fallback 2.º/1.º ecrã).</summary>
+    /// <summary>
+    /// Resolve o ecrã para um device pedido (ou o preset do projeto).
+    /// Default (sem pedido/preset): o monitor SECUNDÁRIO/externo quando ligado
+    /// (preferência não-primário); senão o primário.
+    /// </summary>
     private static System.Windows.Forms.Screen ResolveScreen(string? requestedDevice)
     {
         var screens = System.Windows.Forms.Screen.AllScreens;
@@ -2020,7 +2024,9 @@ public partial class MainWindow : Window
         var screen = name is not null
             ? screens.FirstOrDefault(s => string.Equals(s.DeviceName, name, StringComparison.OrdinalIgnoreCase))
             : null;
-        return screen ?? (screens.Length > 1 ? screens[1] : screens[0]);
+        return screen
+            ?? screens.FirstOrDefault(s => !s.Primary)   // externo/secundário se existir
+            ?? screens[0];
     }
 
     /// <summary>Move a janela de output para outro ecrã (routing por cue). Sem crossfade entre ecrãs.</summary>
@@ -2415,7 +2421,11 @@ public partial class MainWindow : Window
 
         if (cue.FillMode == "Uniform" && dec.FrameWidth > 0 && dec.FrameHeight > 0)
         {
-            var vidRatio = (double)dec.FrameWidth / dec.FrameHeight;
+            // rotação de 90°/270° troca o aspect (senão o letterbox fica distorcido)
+            var rotated = cue.Rotation == 90 || cue.Rotation == 270;
+            var vidRatio = rotated
+                ? (double)dec.FrameHeight / dec.FrameWidth
+                : (double)dec.FrameWidth / dec.FrameHeight;
             var outRatio = (double)comp.OutputWidth / comp.OutputHeight;
             if (vidRatio > outRatio)
             {

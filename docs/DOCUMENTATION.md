@@ -1,7 +1,7 @@
 # Smart Play Cue — Documentação Completa
 
 **Software de playout de vídeo para eventos ao vivo** — minimalista, dark mode azul escuro, nativo Windows.
-Desenvolvido por SmartChoice. Versão 2.6.0.
+Desenvolvido por SmartChoice. Versão 2.6.1.
 
 ---
 
@@ -428,6 +428,12 @@ Registo honesto dos bugs encontrados (para referência futura):
     mas nunca era aplicada — agora é routing REAL: o output move-se para o ecrã
     da cue quando ela entra (`SetOutput` com device alvo + `MoveOutputTo`).
     *Lição: sem crossfade entre ecrãs — documentar a limitação em vez de fingir.*
+38. **Linha da cue transbordava (2.6.1)**: o badge OUT ficava tapado pelos botões
+    inline. *Lição: OUT passou para a coluna de indicadores; botões mais compactos;
+    janela default mais larga. Default do output = secundário/externo quando ligado
+    (`FirstOrDefault(!Primary)` em vez de `screens[1]`).*
+39. **Rotação 90°/270° distorcia o letterbox**: o aspect era calculado sem trocar
+    w/h. *Lição: rotação muda o aspect para o cálculo Uniform.*
 
 ---
 
