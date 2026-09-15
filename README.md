@@ -90,8 +90,9 @@ Windows native (.exe — no .NET required). Developed by SmartChoice.
 - OSC feedback port: **8011** (remaining time: `/smartcue/time/hh|mm|ss`)
 - Feedback target is configurable in **`companion.json`** (created next to the exe on
   first run) — set `FeedbackHost` to the IP of the machine running Companion
-- Module: `companion-module-smartplaycue/` — na release: **`Companion-Module-Smart.Play.Cue-versao-actual.tgz`**
-  (o `smartplaycue-2.6.2.tgz` versionado também é incluído)
+- Module: `companion-module-smartplaycue/` — na release: **`Companion-Module-Smart.Play.Cue-v2.6.2.tgz`**
+  (único ficheiro do módulo; importar no Companion e reiniciar — aparece como
+  "Smart Play Cue" em Connections → Add connection)
   — segue as convenções oficiais do Companion (`companion/manifest.json` + `companion/HELP.md`).
   Nota: o módulo é **MIT** por requisito do ecossistema Companion; a aplicação
   Smart Play Cue em si é proprietária (All Rights Reserved).

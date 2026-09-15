@@ -57,14 +57,10 @@ jobs:
       - name: Pack módulo Companion (compatível com o import)
         shell: pwsh
         working-directory: companion-module-smartplaycue
-        run: ./build-pack.ps1 -OutFile smartplaycue-2.6.2.tgz
-
-      - name: Nome amigável do módulo
-        shell: pwsh
-        working-directory: companion-module-smartplaycue
         run: |
-          $pack = Get-ChildItem *.tgz | Select-Object -First 1
-          Copy-Item $pack.FullName "Companion-Module-Smart.Play.Cue-versao-actual.tgz"
+          ./build-pack.ps1
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Copy-Item "smartplaycue-$ver.tgz" "Companion-Module-Smart.Play.Cue-v$ver.tgz"
 
       - name: Instalador Inno Setup (opcional)
         shell: pwsh
@@ -93,7 +89,7 @@ jobs:
           files: |
             release-assets/SmartPlayCue-win64.zip
             dist/SmartPlayCue-Setup-*.exe
-            companion-module-smartplaycue/*.tgz
+            companion-module-smartplaycue/Companion-Module-Smart.Play.Cue-v*.tgz
           generate_release_notes: true
 
       - name: Limpar assets antigos normalizados
@@ -105,7 +101,7 @@ jobs:
           try {
             $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
             foreach ($a in $rel.assets) {
-              if ($a.name -like "Companion.Module.*") {
+              if ($a.name -like "Companion.Module.*" -or $a.name -like "smartplaycue-*.tgz" -or $a.name -like "Companion-Module-Smart.Play.Cue-versao-actual.tgz") {
                 Invoke-RestMethod -Method Delete -Uri $a.url -Headers $headers | Out-Null
                 Write-Host "removido: $($a.name)"
               }

@@ -1,5 +1,8 @@
-param([string]$OutFile = "smartplaycue-2.6.2.tgz")
+param([string]$OutFile = "")
 $ErrorActionPreference = "Stop"
+
+$pkg = Get-Content package.json -Raw | ConvertFrom-Json
+if ($OutFile.Length -eq 0) { $OutFile = "smartplaycue-$($pkg.version).tgz" }
 
 # O Companion exige que o tar tenha uma ENTRADA DE DIRETÓRIO raiz (`package/`)
 # como primeiro elemento. O `npm pack` NÃO a inclui, por isso o import falha
@@ -17,7 +20,6 @@ Copy-Item companion -Destination (Join-Path $stage "package") -Recurse
 
 # O build oficial preenche a versao do manifest a partir do package.json.
 # Fazemos o mesmo aqui (sem BOM para o JSON.parse do Companion nao falhar).
-$pkg = Get-Content package.json -Raw | ConvertFrom-Json
 $manifestPath = Join-Path $stage "package\companion\manifest.json"
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $manifest.version = $pkg.version
