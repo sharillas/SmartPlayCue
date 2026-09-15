@@ -39,7 +39,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\publish\SmartPlayCue.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\publish\FFmpeg\*.dll"; DestDir: "{app}\FFmpeg"; Flags: ignoreversion
 ; VC++ Redistributable (runtime para as DLLs FFmpeg/MSVC)
-Source: "..\installer\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsVcRedist
+Source: "..\installer\redist\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist; Check: NeedsVcRedist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

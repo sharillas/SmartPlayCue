@@ -77,9 +77,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Continue"
           try {
-            Invoke-WebRequest "https://files.jrsoftware.org/is/6/innosetup-6.4.3.exe" -OutFile "$env:TEMP\innosetup.exe"
+            # VC++ redist (o installer/redist/ nao esta no repo - .gitignore)
+            New-Item -ItemType Directory -Force -Path installer\redist | Out-Null
+            Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile "installer\redist\vc_redist.x64.exe"
+
+            Invoke-WebRequest "https://jrsoftware.org/download.php/is.exe" -OutFile "$env:TEMP\innosetup.exe"
             Start-Process "$env:TEMP\innosetup.exe" -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER" -Wait
-          } catch { Write-Host "Download do Inno falhou" }
+          } catch { Write-Host "Download do Inno/redist falhou" }
           $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($iscc) {
             & $iscc installer\setup.iss
