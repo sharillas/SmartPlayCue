@@ -72,10 +72,33 @@ jobs:
           $pack = Get-ChildItem *.tgz | Select-Object -First 1
           Copy-Item $pack.FullName "Companion-Module-Smart.Play.Cue-versao-actual.tgz"
 
+      - name: Instalador Inno Setup (opcional)
+        shell: pwsh
+        run: |
+          try {
+            winget install JRSoftware.InnoSetup --accept-package-agreements --accept-source-agreements --silent | Out-Null
+            $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($iscc) { & $iscc installer\setup.iss }
+          } catch { Write-Host "Inno Setup nao disponivel - instalador fica de fora desta release" }
+
+      - name: Limpar assets antigos normalizados
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN"; "User-Agent" = "ci" }
+          try {
+            $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" -Headers $headers
+            $rel.assets | Where-Object { $_.name -like "Companion.Module.*" } | ForEach-Object {
+              Invoke-RestMethod -Method Delete -Uri $_.url -Headers $headers | Out-Null
+            }
+          } catch { Write-Host "Sem release anterior para limpar" }
+
       - name: GitHub Release (tag)
         uses: softprops/action-gh-release@v3
         with:
           files: |
             release-assets/SmartPlayCue-win64.zip
+            dist/SmartPlayCue-Setup-*.exe
             companion-module-smartplaycue/*.tgz
           generate_release_notes: true
