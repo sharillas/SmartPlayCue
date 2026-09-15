@@ -55,7 +55,9 @@ jobs:
 
       - name: Zip portátil
         shell: pwsh
-        run: Compress-Archive -Path publish\* -DestinationPath release-assets\SmartPlayCue-win64.zip -Force
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Compress-Archive -Path publish\* -DestinationPath release-assets\SmartPlayCue-win64.zip -Force
 
       - name: Pack módulo Companion
         working-directory: companion-module-smartplaycue
