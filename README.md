@@ -9,6 +9,12 @@ Bitfocus Companion / Stream Deck (OSC).
 Windows native (.exe — no .NET required). Developed by SmartChoice.
 
 ![Status](https://img.shields.io/badge/version-2.5.1-green)
+![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-Companion%20module-F7DF1E?logo=javascript&logoColor=black)
+![XAML](https://img.shields.io/badge/XAML-WPF-0C54C2)
+![Companion](https://img.shields.io/badge/Bitfocus%20Companion-module%20v2.5.2-1D4ED8)
+![OSC](https://img.shields.io/badge/OSC-UDP%208010%2F8011-8250DF)
+![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-red)
 
 ---
 
