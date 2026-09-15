@@ -2,7 +2,7 @@
 	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
 	"type": "connection",
 	"id": "smartplaycue",
-	"name": "Smart Play Cue",
+	"name": "Smartchoice: Smart PlayCue.v2.6.2 [ by Nelson Teixeira ]",
 	"shortname": "smartplaycue",
 	"description": "Controlo do Smart Play Cue (video playout para palco) via OSC",
 	"version": "0.0.0",

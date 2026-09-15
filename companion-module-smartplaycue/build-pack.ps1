@@ -48,6 +48,7 @@ Extract-NpmPkg "https://registry.npmjs.org/colord/-/colord-2.9.3.tgz" (Join-Path
 $manifestPath = Join-Path $stage "package\companion\manifest.json"
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $manifest.version = $pkg.version
+$manifest.name = "Smartchoice: Smart PlayCue.v$($pkg.version) [ by Nelson Teixeira ]"
 [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 10))
 
 Push-Location $stage
